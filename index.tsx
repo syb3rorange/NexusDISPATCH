@@ -139,7 +139,6 @@ const playDispatchTone = () => {
     const AudioContextClass = (window as any).AudioContext || (window as any).webkitAudioContext;
     const context = new AudioContextClass();
     
-    // Resume context if suspended (common browser behavior)
     if (context.state === 'suspended') {
       context.resume();
     }
@@ -158,7 +157,6 @@ const playDispatchTone = () => {
       osc.stop(context.currentTime + start + duration);
     };
     
-    // Professional 2-Tone sequence
     playTone(850, 0, 0.5);
     playTone(650, 0.55, 0.8);
   } catch (e) {
@@ -198,6 +196,7 @@ const App: React.FC = () => {
   // Use a Ref to track IDs of incidents we've already "heard"
   const knownIncidentIds = useRef<Set<string>>(new Set());
 
+  // Derive the active incident from the list
   const activeIncident = useMemo(() => incidents.find(i => i.id === activeIncidentId), [incidents, activeIncidentId]);
 
   // Load saved profile on mount
@@ -210,7 +209,7 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Persistent broadcasting wrapper
+  // Broadcast function to update the shared Gun state
   const broadcastState = useCallback((newUnits: Unit[], newIncidents: Incident[]) => {
     gun.get('nexus_cad_rooms').get(roomId).get('state').put(JSON.stringify({ 
       units: newUnits, 
@@ -219,50 +218,61 @@ const App: React.FC = () => {
     }));
   }, [roomId]);
 
-  // Real-time Gun Listener (Seamless Auto-Refresh)
+  // Real-time Gun Listener
   useEffect(() => {
     const room = gun.get('nexus_cad_rooms').get(roomId);
+    
+    // Listen for updates from other peers
     room.get('state').on((data) => {
-      if (data) {
-        setIsSyncing(true);
-        try {
-          const parsed = JSON.parse(data);
-          
-          if (parsed.units) setUnits(parsed.units);
-          
-          if (parsed.incidents) {
-            const activeIncidents = (parsed.incidents as Incident[]).filter(i => i.status === 'ACTIVE');
-            
-            // Check for brand new incident IDs to trigger tone
-            let hasNewCall = false;
-            activeIncidents.forEach(inc => {
-              if (!knownIncidentIds.current.has(inc.id)) {
-                knownIncidentIds.current.add(inc.id);
-                hasNewCall = true;
-              }
-            });
-
-            if (hasNewCall) {
-              playDispatchTone();
-            }
-
-            setIncidents(parsed.incidents);
-          }
-          
-          setLastSync(Date.now());
-        } catch (e) {
-          console.error("Sync parse error", e);
-        } finally {
-          setTimeout(() => setIsSyncing(false), 500);
+      if (!data) return;
+      setIsSyncing(true);
+      try {
+        const parsed = JSON.parse(data);
+        
+        // Update units if they have changed
+        if (parsed.units) {
+          setUnits(parsed.units);
         }
+        
+        // Update incidents if they have changed
+        if (parsed.incidents) {
+          const activeIncs = (parsed.incidents as Incident[]).filter(i => i.status === 'ACTIVE');
+          
+          // Audio alert check: if a new incident ID exists that we haven't seen yet, play sound
+          let newAlert = false;
+          activeIncs.forEach(inc => {
+            if (!knownIncidentIds.current.has(inc.id)) {
+              knownIncidentIds.current.add(inc.id);
+              newAlert = true;
+            }
+          });
+
+          if (newAlert) {
+            playDispatchTone();
+          }
+
+          setIncidents(parsed.incidents);
+          
+          // If the currently active incident was deleted/closed by someone else, deselect it
+          if (activeIncidentId && !parsed.incidents.find((i: Incident) => i.id === activeIncidentId)) {
+            setActiveIncidentId(null);
+          }
+        }
+        
+        setLastSync(Date.now());
+      } catch (e) {
+        console.error("Sync error:", e);
+      } finally {
+        setTimeout(() => setIsSyncing(false), 300);
       }
     });
+
     return () => { room.get('state').off(); };
-  }, [roomId]);
+  }, [roomId, activeIncidentId]);
 
   const handleLoginDispatch = () => {
     if (dispatchPass === '10-4') setSession({ role: 'DISPATCH' });
-    else alert("Incorrect Passcode. Try 10-4.");
+    else alert("Invalid Code. Try 10-4.");
   };
 
   const performJoin = (data: {roblox: string, callsign: string, type: UnitType}) => {
@@ -313,13 +323,12 @@ const App: React.FC = () => {
       startTime: new Date().toISOString(),
     };
     
-    // We update local state first for immediate UI feedback
     const nextIncidents = [newIncident, ...incidents];
     setIncidents(nextIncidents);
     setActiveIncidentId(id);
     setIsCreatingCall(false);
     
-    // Push to Gun (triggers Tone for others)
+    // Broadcast the new call to everyone else (triggers tone)
     broadcastState(units, nextIncidents);
   };
 
@@ -344,7 +353,7 @@ const App: React.FC = () => {
 
   const handleCloseIncident = () => {
     if (!activeIncidentId || session?.role !== 'DISPATCH') return;
-    // Remove the incident entirely from the logs/state as requested
+    // Purge the incident entirely from the logs/state
     const nextIncidents = incidents.filter(i => i.id !== activeIncidentId);
     setIncidents(nextIncidents);
     setActiveIncidentId(null);
@@ -357,20 +366,18 @@ const App: React.FC = () => {
         <div className="absolute inset-0 opacity-10 pointer-events-none">
           <div className="grid grid-cols-12 h-full w-full">{Array.from({ length: 144 }).map((_, i) => <div key={i} className="border border-slate-800/20" />)}</div>
         </div>
-        <div className="z-10 w-full max-w-5xl flex flex-col items-center">
+        <div className="z-10 w-full max-w-5xl flex flex-col items-center animate-in fade-in duration-700">
           <div className="bg-blue-600 p-5 rounded-3xl shadow-2xl mb-8 border border-blue-400/30 shadow-blue-500/20"><Icons.Police /></div>
           <h1 className="text-6xl font-black tracking-widest mb-4 uppercase">NEXUS<span className="text-blue-500">CAD</span></h1>
           <div className="flex gap-3 mb-12 text-[10px] font-mono uppercase text-slate-600">Secure Uplink: <span className="text-blue-400 font-bold">{roomId}</span></div>
           
           <div className="grid lg:grid-cols-3 gap-8 w-full">
-            {/* Dispatch Portal */}
             <div className="bg-slate-900/40 border border-slate-800 p-8 rounded-[2rem] backdrop-blur-xl flex flex-col hover:border-blue-500/50 transition-all">
               <h2 className="text-xl font-black mb-6 uppercase flex items-center gap-3"><Icons.Send /> Dispatch</h2>
               <input type="password" placeholder="Passcode (10-4)" value={dispatchPass} onChange={(e) => setDispatchPass(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLoginDispatch()} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 mb-4 font-bold outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
               <button onClick={handleLoginDispatch} className="w-full bg-blue-600 hover:bg-blue-500 p-5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-blue-900/40 mt-auto">Enter Terminal</button>
             </div>
 
-            {/* Field Unit Login */}
             <div className="bg-slate-900/40 border border-slate-800 p-8 rounded-[2rem] backdrop-blur-xl flex flex-col hover:border-emerald-500/50 transition-all">
               <h2 className="text-xl font-black mb-6 uppercase flex items-center gap-3"><Icons.Police /> Officer</h2>
               <div className="space-y-4 mb-6">
@@ -385,21 +392,20 @@ const App: React.FC = () => {
               <button onClick={handleJoinUnit} className="w-full bg-emerald-600 hover:bg-emerald-500 p-5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-emerald-900/40">Join Network</button>
             </div>
 
-            {/* Persistence / Quick Access */}
             <div className={`bg-slate-900/40 border-2 ${savedProfile ? 'border-blue-500/50 shadow-2xl shadow-blue-500/10' : 'border-slate-800/20'} p-8 rounded-[2rem] backdrop-blur-xl flex flex-col transition-all relative overflow-hidden group`}>
-               {!savedProfile && <div className="absolute inset-0 bg-slate-950/40 backdrop-grayscale flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-slate-800 italic">Historical Data Empty</div>}
-               <h2 className="text-xl font-black mb-6 uppercase flex items-center gap-3 text-blue-400">Quick Uplink</h2>
+               {!savedProfile && <div className="absolute inset-0 bg-slate-950/40 backdrop-grayscale flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-slate-800 italic">No Historical Data</div>}
+               <h2 className="text-xl font-black mb-6 uppercase flex items-center gap-3 text-blue-400">Quick Login</h2>
                {savedProfile && (
-                 <div className="flex flex-col h-full">
+                 <div className="flex flex-col h-full animate-in zoom-in-95">
                     <div className="bg-slate-950/60 p-5 rounded-2xl border border-slate-800 mb-6 group-hover:bg-slate-950 transition-colors">
-                        <div className="text-[10px] font-black text-slate-700 uppercase mb-1">Last Deployment</div>
+                        <div className="text-[10px] font-black text-slate-700 uppercase mb-1">Previous Deployment</div>
                         <div className="text-3xl font-black tracking-tight text-white">{savedProfile.callsign}</div>
                         <div className="text-xs font-mono text-slate-500 mt-2 uppercase">{savedProfile.type} // {savedProfile.roblox}</div>
                     </div>
-                    <button onClick={handleQuickJoin} className="w-full bg-blue-600 hover:bg-blue-500 p-5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-xl shadow-blue-900/40 mt-auto flex items-center justify-center gap-3">
-                        <Icons.Refresh /> Resume Session
+                    <button onClick={handleQuickJoin} className="w-full bg-blue-600 hover:bg-blue-500 p-5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-xl shadow-blue-900/40 mt-auto flex items-center justify-center gap-3 active:scale-95">
+                        <Icons.Refresh /> Establish Uplink
                     </button>
-                    <button onClick={() => {localStorage.removeItem(STORAGE_KEY); setSavedProfile(null);}} className="text-[9px] text-slate-700 mt-4 font-black uppercase hover:text-red-500 transition-colors">Clear Identity</button>
+                    <button onClick={() => {localStorage.removeItem(STORAGE_KEY); setSavedProfile(null);}} className="text-[9px] text-slate-700 mt-4 font-black uppercase hover:text-red-500 transition-colors">Wipe Profile</button>
                  </div>
                )}
             </div>
@@ -417,18 +423,19 @@ const App: React.FC = () => {
           <h1 className="text-xl font-black uppercase tracking-tighter leading-none">Nexus<span className={session.role === 'DISPATCH' ? 'text-blue-500' : 'text-emerald-500'}>{session.role}</span></h1>
           <div className="h-8 w-px bg-slate-800 mx-2 hidden sm:block" />
           <div className="hidden sm:flex flex-col leading-none">
-            <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-1">Identity</span>
-            <span className="text-[11px] font-mono text-slate-300 font-bold">{session.role === 'UNIT' ? session.callsign : 'COMMAND_HQ'}</span>
+            <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-1">Current Operator</span>
+            <span className="text-[11px] font-mono text-slate-300 font-bold">{session.role === 'UNIT' ? session.callsign : 'DISPATCH_COMM'}</span>
           </div>
         </div>
         <div className="flex items-center gap-6">
-          {session.role === 'DISPATCH' && <button onClick={() => setIsCreatingCall(true)} className="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-2xl transition-all active:scale-95 border border-white/10">Broadcast Call</button>}
+          {session.role === 'DISPATCH' && <button onClick={() => setIsCreatingCall(true)} className="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-2xl transition-all active:scale-95 border border-white/10">New Call</button>}
           <button onClick={() => setSession(null)} className="text-[10px] font-black uppercase text-slate-600 hover:text-red-500 transition-colors tracking-widest">Logout</button>
         </div>
       </header>
+
       <main className="flex-1 flex overflow-hidden">
         <aside className="w-80 border-r border-slate-800/60 bg-slate-950/40 flex flex-col shrink-0">
-          <div className="p-6 border-b border-slate-800 flex items-center justify-between"><h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Personnel Roster</h2></div>
+          <div className="p-6 border-b border-slate-800 flex items-center justify-between"><h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Personnel Status</h2></div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
             {units.map(unit => (
               <div key={unit.id} className={`p-5 rounded-3xl border transition-all ${unit.name === session.callsign ? 'bg-emerald-500/5 border-emerald-500/40 shadow-xl' : 'bg-slate-900/40 border-slate-800/50'}`}>
@@ -445,6 +452,7 @@ const App: React.FC = () => {
             ))}
           </div>
         </aside>
+
         <section className="flex-1 flex flex-col bg-[#020617]">
           <div className="h-44 shrink-0 border-b border-slate-800/60 flex p-6 gap-6 overflow-x-auto items-center custom-scrollbar">
             {incidents.filter(i => i.status === 'ACTIVE').map(incident => (
@@ -454,13 +462,14 @@ const App: React.FC = () => {
                 <div className="text-[11px] text-slate-500 truncate mb-5">LOC: {incident.location}</div>
               </div>
             ))}
-            {incidents.filter(i => i.status === 'ACTIVE').length === 0 && <div className="w-full text-center text-slate-800 font-black text-[11px] uppercase tracking-[0.4em] opacity-50">Zero Active Calls</div>}
+            {incidents.filter(i => i.status === 'ACTIVE').length === 0 && <div className="w-full text-center text-slate-800 font-black text-[11px] uppercase tracking-[0.4em] opacity-50">Operational Silence</div>}
           </div>
+
           {activeIncident ? (
-            <div className="flex-1 flex flex-col p-8 overflow-hidden">
+            <div className="flex-1 flex flex-col p-8 overflow-hidden animate-in fade-in slide-in-from-bottom-2">
                <div className="flex justify-between items-start mb-10">
                   <div><h2 className="text-5xl font-black text-white uppercase tracking-tighter mb-4 drop-shadow-2xl">{activeIncident.callType}</h2><div className="text-[11px] text-slate-500 uppercase tracking-[0.3em] font-black">Dispatch Location: {activeIncident.location}</div></div>
-                  {session.role === 'DISPATCH' && <button onClick={handleCloseIncident} className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-10 py-4 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all border border-red-500/20 active:scale-95 shadow-xl">Purge Incident</button>}
+                  {session.role === 'DISPATCH' && <button onClick={handleCloseIncident} className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-10 py-4 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all border border-red-500/20 active:scale-95 shadow-xl">Purge Call</button>}
                </div>
                <div className="flex-1 flex flex-col bg-slate-950/40 rounded-[3rem] border border-slate-800/40 overflow-hidden shadow-3xl">
                   <div className="flex-1 overflow-y-auto p-10 space-y-6 font-mono text-sm custom-scrollbar">
@@ -470,7 +479,7 @@ const App: React.FC = () => {
                   </div>
                   <div className="p-10 bg-slate-950/60 border-t border-slate-800/40">
                     <div className="flex gap-5">
-                      <input type="text" value={logInput} onChange={(e) => setLogInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddLog()} placeholder="Enter situational log..." className="flex-1 bg-slate-950 border border-slate-800 rounded-[1.5rem] px-8 py-6 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder:text-slate-800 shadow-inner" />
+                      <input type="text" value={logInput} onChange={(e) => setLogInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddLog()} placeholder="Situation update..." className="flex-1 bg-slate-950 border border-slate-800 rounded-[1.5rem] px-8 py-6 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder:text-slate-800 shadow-inner" />
                       <button onClick={() => setIsAIAssisting(!isAIAssisting)} className={`p-6 rounded-[1.5rem] border transition-all ${isAIAssisting ? 'bg-blue-600 text-white border-blue-400 shadow-xl' : 'bg-slate-900 border-slate-800 text-slate-600 hover:text-white'}`}><Icons.Sparkles /></button>
                       <button onClick={handleAddLog} className="bg-blue-600 hover:bg-blue-500 p-6 rounded-[1.5rem] shadow-2xl transition-all active:scale-95"><Icons.Send /></button>
                     </div>
@@ -479,33 +488,35 @@ const App: React.FC = () => {
             </div>
           ) : <div className="flex-1 flex flex-col items-center justify-center opacity-10">
                 <div className="w-32 h-32 mb-8 bg-slate-900 rounded-[3rem] flex items-center justify-center border border-slate-800"><Icons.Police /></div>
-                <div className="text-4xl font-black uppercase tracking-[0.5em]">Monitoring...</div>
+                <div className="text-4xl font-black uppercase tracking-[0.5em]">System Idle</div>
               </div>}
         </section>
       </main>
+
       {isCreatingCall && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-8">
           <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-12 w-full max-w-2xl space-y-10 animate-in zoom-in-95 shadow-3xl">
              <div className="grid grid-cols-2 gap-8">
-                <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Incident Category</label><select value={newCallType} onChange={(e) => setNewCallType(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 font-black text-white outline-none appearance-none cursor-pointer">{CALL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
-                <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Priority Code</label><div className="grid grid-cols-2 gap-2">{Object.values(Priority).map(p => <button key={p} onClick={() => setNewPriority(p)} className={`py-4 rounded-xl border text-[10px] font-black uppercase transition-all tracking-tighter ${newPriority === p ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-950 text-slate-700'}`}>{p}</button>)}</div></div>
+                <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Type</label><select value={newCallType} onChange={(e) => setNewCallType(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 font-black text-white outline-none appearance-none cursor-pointer">{CALL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
+                <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Priority</label><div className="grid grid-cols-2 gap-2">{Object.values(Priority).map(p => <button key={p} onClick={() => setNewPriority(p)} className={`py-4 rounded-xl border text-[10px] font-black uppercase transition-all tracking-tighter ${newPriority === p ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-950 text-slate-700'}`}>{p}</button>)}</div></div>
              </div>
-             <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Operational Location</label><input type="text" placeholder="STREET NAME / HOUSE NO" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-6 font-black outline-none focus:ring-2 focus:ring-blue-500 shadow-inner" /></div>
+             <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Location</label><input type="text" placeholder="Coordinates..." value={newLocation} onChange={(e) => setNewLocation(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-6 font-black outline-none focus:ring-2 focus:ring-blue-500 shadow-inner" /></div>
              <div className="flex gap-6"><button onClick={() => setIsCreatingCall(false)} className="flex-1 font-black text-[11px] text-slate-500 uppercase tracking-widest hover:text-white transition-colors">Discard</button><button onClick={createIncident} className="flex-[3] bg-blue-600 hover:bg-blue-500 text-white py-6 rounded-2xl font-black uppercase tracking-[0.4em] shadow-2xl shadow-blue-900/40 active:scale-95 transition-all">Broadcast Call</button></div>
           </div>
         </div>
       )}
+
       <footer className="h-12 bg-slate-950 border-t border-slate-900 flex items-center px-8 justify-between shrink-0 text-[10px] font-mono tracking-widest text-slate-700 uppercase font-black z-20">
         <div className="flex gap-10 items-center">
           <div className="flex items-center gap-3">
              <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-blue-500 animate-ping' : 'bg-emerald-500 shadow-[0_0_10px_#10b981]'} transition-colors`}></div>
-             SYNC: {isSyncing ? 'UPDATING...' : 'LIVE'}
+             NETWORK: {isSyncing ? 'SYNCING...' : 'ONLINE'}
           </div>
-          <div className="flex items-center gap-3 text-slate-800">UPLINK_ID: {roomId.toUpperCase()}</div>
-          <div className="hidden sm:block text-slate-800">LAST_PACKET: {new Date(lastSync).toLocaleTimeString()}</div>
+          <div className="flex items-center gap-3 text-slate-800">CHANNEL: {roomId.toUpperCase()}</div>
+          <div className="hidden sm:block text-slate-800">LAST_UPDATE: {new Date(lastSync).toLocaleTimeString()}</div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="text-slate-800 font-black">NEXUS v5.2.0_SEAMLESS</div>
+          <div className="text-slate-800 font-black">NEXUS v5.2.1 // SEAMLESS_REALTIME</div>
         </div>
       </footer>
     </div>
