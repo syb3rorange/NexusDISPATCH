@@ -1,0 +1,5 @@
+{
+  "name": "Nexus Dispatch CAD",
+  "description": "A high-performance Computer-Aided Dispatch (CAD) system for emergency services, featuring real-time unit tracking, incident management, and AI-assisted dispatch logging.",
+  "requestFramePermissions": []
+}
