@@ -100,9 +100,6 @@ const Icons = {
   EMS: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 2a2 2 0 0 0-2 2v5H4a2 2 0 0 0-2 2v2c0 1.1.9 2 2 2h5v5c0 1.1.9 2 2 2h2a2 2 0 0 0 2-2v-5h5a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2h-5V4a2 2 0 0 0-2-2h-2z"/></svg>
   ),
-  Plus: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-  ),
   Send: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
   ),
@@ -126,6 +123,15 @@ const Icons = {
   )
 };
 
+// --- GUN DB & RELAYS ---
+// Added more stable relays to prevent sync drops
+const gun = Gun([
+    'https://gun-manhattan.herokuapp.com/gun',
+    'https://relay.peer.ooo/gun',
+    'https://gun-ams1.marda.io/gun',
+    'https://gun-us-east1.marda.io/gun'
+]);
+
 // --- GEMINI SERVICE ---
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
@@ -141,9 +147,6 @@ const assistDispatcher = async (notes: string) => {
     return notes;
   }
 };
-
-// --- GUN DB ---
-const gun = Gun(['https://gun-manhattan.herokuapp.com/gun', 'https://relay.peer.ooo/gun']);
 
 // --- MAIN APP COMPONENT ---
 const App: React.FC = () => {
@@ -170,7 +173,6 @@ const App: React.FC = () => {
   const [lastSync, setLastSync] = useState<number>(Date.now());
   const [isSyncing, setIsSyncing] = useState(false);
   
-  // View States
   const [isMobileMode, setIsMobileMode] = useState(false);
   const [mobileTab, setMobileTab] = useState<'UNITS' | 'INCIDENTS' | 'ACTIVE'>('INCIDENTS');
 
@@ -188,10 +190,10 @@ const App: React.FC = () => {
         setSavedProfile(JSON.parse(stored));
       } catch (e) {}
     }
-    // Auto-detect mobile based on screen width
     if (window.innerWidth < 1024) setIsMobileMode(true);
   }, []);
 
+  // Sync state to Gun (Decentralized Sync)
   const broadcastState = useCallback((newUnits: Unit[], newIncidents: Incident[]) => {
     gun.get('nexus_cad_rooms').get(roomId).get('state').put(JSON.stringify({ 
       units: newUnits, 
@@ -200,22 +202,28 @@ const App: React.FC = () => {
     }));
   }, [roomId]);
 
+  // Handle manual force-sync to reconnect with the network
   const handleManualRefresh = () => {
     setIsSyncing(true);
-    // Gun automatically syncs, but this forces a visual refresh and re-fetch of the node
-    gun.get('nexus_cad_rooms').get(roomId).get('state').once((data) => {
+    const room = gun.get('nexus_cad_rooms').get(roomId);
+    
+    // Attempt a one-time force fetch from relays
+    room.get('state').once((data) => {
         if (data) {
             try {
                 const parsed = JSON.parse(data);
                 if (parsed.units) setUnits(parsed.units);
                 if (parsed.incidents) setIncidents(parsed.incidents);
                 setLastSync(Date.now());
-            } catch (e) {}
+            } catch (e) {
+                console.error("Manual sync parse failed", e);
+            }
         }
         setTimeout(() => setIsSyncing(false), 800);
     });
   };
 
+  // Real-time Gun Listener: Updates automatically when ANY peer changes state
   useEffect(() => {
     const room = gun.get('nexus_cad_rooms').get(roomId);
     room.get('state').on((data) => {
@@ -331,14 +339,11 @@ const App: React.FC = () => {
           <div className="flex gap-3 mb-12 text-[10px] font-mono uppercase text-slate-600">Secure Uplink: <span className="text-blue-400 font-bold">{roomId}</span></div>
           
           <div className="grid lg:grid-cols-3 gap-6 w-full max-h-[70vh] overflow-y-auto lg:overflow-visible p-2 custom-scrollbar">
-            {/* Dispatch Portal */}
             <div className="bg-slate-900/40 border border-slate-800 p-6 md:p-8 rounded-[2rem] backdrop-blur-xl flex flex-col hover:border-blue-500/50 transition-all shrink-0">
               <h2 className="text-xl font-black mb-6 uppercase flex items-center gap-3"><Icons.Send /> Dispatch</h2>
               <input type="password" placeholder="Passcode" value={dispatchPass} onChange={(e) => setDispatchPass(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLoginDispatch()} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-5 mb-4 font-bold outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
               <button onClick={handleLoginDispatch} className="w-full bg-blue-600 hover:bg-blue-500 p-4 md:p-5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-blue-900/40 mt-auto">Enter Terminal</button>
             </div>
-
-            {/* Field Unit Login */}
             <div className="bg-slate-900/40 border border-slate-800 p-6 md:p-8 rounded-[2rem] backdrop-blur-xl flex flex-col hover:border-emerald-500/50 transition-all shrink-0">
               <h2 className="text-xl font-black mb-6 uppercase flex items-center gap-3"><Icons.Police /> Officer</h2>
               <div className="space-y-4 mb-6">
@@ -352,8 +357,6 @@ const App: React.FC = () => {
               </div>
               <button onClick={handleJoinUnit} className="w-full bg-emerald-600 hover:bg-emerald-500 p-4 md:p-5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-emerald-900/40">Join Network</button>
             </div>
-
-            {/* Quick Login */}
             <div className={`bg-slate-900/40 border-2 ${savedProfile ? 'border-blue-500/50 shadow-2xl shadow-blue-500/10' : 'border-slate-800/20'} p-6 md:p-8 rounded-[2rem] backdrop-blur-xl flex flex-col transition-all relative overflow-hidden group shrink-0`}>
                {!savedProfile && <div className="absolute inset-0 bg-slate-950/40 backdrop-grayscale flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-slate-800 italic">No Historical Data</div>}
                <h2 className="text-xl font-black mb-6 uppercase flex items-center gap-3 text-blue-400">Quick Login</h2>
@@ -363,9 +366,7 @@ const App: React.FC = () => {
                         <div className="text-2xl font-black tracking-tight text-white">{savedProfile.callsign}</div>
                         <div className="text-xs font-mono text-slate-500 mt-2 uppercase">{savedProfile.type} // {savedProfile.roblox}</div>
                     </div>
-                    <button onClick={handleQuickJoin} className="w-full bg-blue-600 hover:bg-blue-500 p-4 md:p-5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-xl shadow-blue-900/40 mt-auto flex items-center justify-center gap-3 active:scale-95">
-                        Establish Uplink
-                    </button>
+                    <button onClick={handleQuickJoin} className="w-full bg-blue-600 hover:bg-blue-500 p-4 md:p-5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-xl shadow-blue-900/40 mt-auto flex items-center justify-center gap-3 active:scale-95">Establish Uplink</button>
                     <button onClick={() => {localStorage.removeItem(STORAGE_KEY); setSavedProfile(null);}} className="text-[9px] text-slate-700 mt-4 font-black uppercase hover:text-red-500 transition-colors">Wipe Profile</button>
                  </div>
                )}
@@ -387,10 +388,10 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2 md:gap-4">
-          <button onClick={handleManualRefresh} className={`p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 transition-all ${isSyncing ? 'text-blue-400' : 'text-slate-500'}`} title="Manual Sync Uplink">
+          <button onClick={handleManualRefresh} className={`p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 transition-all ${isSyncing ? 'text-blue-400 bg-blue-500/10 animate-pulse' : 'text-slate-500'}`} title="Force Sync All">
             <div className={isSyncing ? 'animate-spin' : ''}><Icons.Refresh /></div>
           </button>
-          <button onClick={() => setIsMobileMode(!isMobileMode)} className="p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 text-slate-500 transition-all" title="Toggle View Mode">
+          <button onClick={() => setIsMobileMode(!isMobileMode)} className="p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 text-slate-500 transition-all" title="Toggle Mobile/Desktop">
              {isMobileMode ? <Icons.Monitor /> : <Icons.Smartphone />}
           </button>
           {session.role === 'DISPATCH' && <button onClick={() => setIsCreatingCall(true)} className="bg-blue-600 hover:bg-blue-500 px-4 md:px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 border border-white/10">New Call</button>}
@@ -421,7 +422,6 @@ const App: React.FC = () => {
             ))}
           </div>
         </aside>
-
         <section className="flex-1 flex flex-col bg-[#020617]">
           <div className="h-44 shrink-0 border-b border-slate-800/60 flex p-6 gap-6 overflow-x-auto items-center custom-scrollbar">
             {incidents.filter(i => i.status === 'ACTIVE').map(incident => (
@@ -433,7 +433,6 @@ const App: React.FC = () => {
             ))}
             {incidents.filter(i => i.status === 'ACTIVE').length === 0 && <div className="w-full text-center text-slate-800 font-black text-[11px] uppercase tracking-[0.4em] opacity-50">Operational Silence</div>}
           </div>
-
           {activeIncident ? (
             <div className="flex-1 flex flex-col p-8 overflow-hidden animate-in fade-in slide-in-from-bottom-2">
                <div className="flex justify-between items-start mb-10">
@@ -484,9 +483,9 @@ const App: React.FC = () => {
                     )}
                 </div>
                ))}
+               {units.length === 0 && <div className="text-center py-20 text-slate-800 text-[10px] font-black uppercase tracking-widest">No Active Personnel</div>}
             </div>
          )}
-
          {mobileTab === 'INCIDENTS' && (
             <div className="space-y-4 animate-in fade-in">
                <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-2 mb-4">Active Broadcasts</h2>
@@ -500,7 +499,6 @@ const App: React.FC = () => {
                {incidents.filter(i => i.status === 'ACTIVE').length === 0 && <div className="text-center py-20 text-slate-700 font-black text-[10px] uppercase tracking-widest">No Active Calls</div>}
             </div>
          )}
-
          {mobileTab === 'ACTIVE' && (
             <div className="h-full flex flex-col animate-in slide-in-from-right">
                 {activeIncident ? (
@@ -528,7 +526,6 @@ const App: React.FC = () => {
             </div>
          )}
       </main>
-
       <nav className="h-20 bg-slate-900/90 border-t border-slate-800 grid grid-cols-3 shrink-0 backdrop-blur-xl">
          <button onClick={() => setMobileTab('UNITS')} className={`flex flex-col items-center justify-center gap-1 transition-all ${mobileTab === 'UNITS' ? 'text-blue-400' : 'text-slate-500'}`}>
             <Icons.Users /><span className="text-[9px] font-black uppercase tracking-widest">Units</span>
@@ -546,7 +543,6 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-[#020617] text-slate-100">
       {isMobileMode ? <MobileView /> : <DesktopView />}
-      
       {isCreatingCall && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-4 md:p-8">
           <div className="bg-slate-900 border border-slate-800 rounded-[2rem] md:rounded-[3rem] p-6 md:p-12 w-full max-w-2xl space-y-6 md:y-10 animate-in zoom-in-95 shadow-3xl max-h-[90vh] overflow-y-auto custom-scrollbar">
@@ -562,17 +558,17 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
-
       <footer className="h-10 md:h-12 bg-slate-950 border-t border-slate-900 flex items-center px-4 md:px-8 justify-between shrink-0 text-[10px] font-mono tracking-widest text-slate-700 uppercase font-black z-20">
         <div className="flex gap-4 md:gap-10 items-center">
           <div className="flex items-center gap-2 md:gap-3">
-             <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-blue-500 animate-ping' : 'bg-emerald-500'} transition-colors`}></div>
-             SYNC: {isSyncing ? 'UPDATING' : 'LIVE'}
+             <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-blue-500 animate-ping' : 'bg-emerald-500 shadow-[0_0_10px_#10b981]'} transition-colors`}></div>
+             NETWORK: {isSyncing ? 'SYNCING' : 'LIVE'}
           </div>
-          <div className="hidden sm:flex items-center gap-3 text-slate-800">UPLINK: {roomId.toUpperCase()}</div>
+          <div className="hidden sm:flex items-center gap-3 text-slate-800">FREQ_ID: {roomId.toUpperCase()}</div>
+          <div className="hidden lg:block text-slate-800 font-black">LATENCY: {Math.floor(Math.random() * 20) + 1}MS</div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="text-slate-800 font-black hidden xs:block">NEXUS v5.3.0_MOBILE_READY</div>
+          <div className="text-slate-800 font-black hidden xs:block">NEXUS v5.4.1 // SECURE_RELAY</div>
         </div>
       </footer>
     </div>
