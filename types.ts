@@ -20,12 +20,10 @@ export enum Priority {
   EMERGENCY = 'EMERGENCY'
 }
 
-export type Role = 'DISPATCH' | 'UNIT';
-
 export interface UserSession {
-  role: Role;
-  username?: string; // Roblox Username
-  callsign?: string; // Unit Name
+  role: 'DISPATCH' | 'UNIT';
+  username?: string;
+  callsign?: string;
   unitType?: UnitType;
 }
 
@@ -51,7 +49,7 @@ export interface Incident {
   location: string;
   priority: Priority;
   status: 'ACTIVE' | 'CLOSED';
-  assignedUnits: string[]; // Unit IDs
-  logs: IncidentLog[];
+  assignedUnits: string; // JSON stringified array of unit IDs
+  logs: string; // JSON stringified array of logs
   startTime: string;
 }
