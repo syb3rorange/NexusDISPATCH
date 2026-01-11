@@ -1,34 +1,28 @@
 
 # 🚨 Nexus Dispatch CAD - Deployment Guide
 
-This application is designed to be hosted for **free** on GitHub Pages. Follow these steps to get your shareable URL.
+If your GitHub Pages site is blank, it's because GitHub does not know how to run TypeScript (`.tsx`) files automatically. 
 
-## 🚀 Easy Hosting with GitHub Pages
+### 🚀 Recommended (Free & Easy): Use Vercel
+Vercel is the gold standard for hosting React apps for free. It will automatically build your site.
 
-1. **Create a GitHub Repository**: 
-   - Go to [GitHub](https://github.com) and create a new repository named `nexus-cad`.
-2. **Upload Your Files**:
-   - Upload all the files from this project (`index.html`, `App.tsx`, `package.json`, etc.) into that repository.
-3. **Enable GitHub Pages**:
-   - Go to the **Settings** tab of your repository.
-   - Click on **Pages** in the left sidebar.
-   - Under "Build and deployment", set the source to **GitHub Actions**.
-4. **The URL**:
-   - GitHub will generate a link like `https://yourusername.github.io/nexus-cad/`. 
-   - **Important**: Your app uses "Hash Routing" (the `#` in the URL), which is perfectly compatible with GitHub's free hosting.
+1.  Create a **[Vercel](https://vercel.com/)** account.
+2.  Click **"Add New"** > **"Project"**.
+3.  Import your GitHub repository.
+4.  Vercel will detect the `package.json`, run the build command, and give you a live URL in 30 seconds.
+5.  **Done!** Your site will work perfectly.
 
-## 🤝 How to Sync
-- Once the site is live, open the link.
-- Your browser will automatically add a unique Room ID (e.g., `#abc123xyz`).
-- Share the **full URL** with your team to join the same private network room.
-- Because we use **Gun.js**, your data will sync between your computers without needing a paid server!
+### 🛠️ Using GitHub Pages (Advanced)
+If you *must* use GitHub Pages, you cannot just upload the files. You have to build them first:
+1.  Run `npm install` and then `npm run build` on your computer.
+2.  Upload the contents of the generated `dist` folder to GitHub.
+3.  **Vercel is much easier—highly recommended!**
 
-## 🤖 AI Features (Important)
-Since GitHub Pages is a public static host, it cannot "hide" secret keys. To keep the AI features working safely for you and your team:
-- The app expects an `API_KEY` for the Gemini AI features.
-- If you are using a professional deployment tool like Vercel, add the key in the "Environment Variables" section.
-- If using GitHub Actions, you can inject it during the build process as a secret.
+### 🤝 How to Sync with Friends
+1.  Open your live URL.
+2.  The browser adds a code like `#abc123xyz` to the end.
+3.  **Copy that whole link** and give it to your friends. They will be in the same Dispatch room as you!
 
-## 🔑 Access Codes
-- **Dispatch Terminal**: `10-4`
-- **Unit Login**: No password required, just a Roblox username and Callsign.
+### 🔑 Codes
+- **Dispatch Code**: `10-4`
+- **Unit Login**: No code needed.
