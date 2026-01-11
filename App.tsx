@@ -5,7 +5,7 @@ import { Unit, Incident, UnitStatus, UnitType, Priority, IncidentLog, Role, User
 import { CALL_TYPES, STATUS_COLORS, PRIORITY_COLORS, Icons } from './constants';
 import { assistDispatcher, suggestUnits } from './geminiService';
 
-// Initialize Gun with public relays
+// Initialize Gun with public relays for real-time synchronization
 const gun = Gun(['https://gun-manhattan.herokuapp.com/gun', 'https://relay.peer.ooo/gun']);
 
 const App: React.FC = () => {
@@ -43,7 +43,6 @@ const App: React.FC = () => {
 
   // Derived state
   const activeIncident = useMemo(() => incidents.find(i => i.id === activeIncidentId), [incidents, activeIncidentId]);
-  const myUnit = useMemo(() => session?.role === 'UNIT' ? units.find(u => u.name === session.callsign) : null, [units, session]);
 
   // GUN Synchronization Layer
   useEffect(() => {
@@ -81,7 +80,7 @@ const App: React.FC = () => {
       const hash = window.location.hash.replace('#', '');
       if (hash && hash !== roomId) {
         setRoomId(hash);
-        setSession(null); // Force re-login on room change
+        setSession(null); 
       }
     };
     window.addEventListener('hashchange', handleHashChange);
@@ -246,7 +245,7 @@ const App: React.FC = () => {
   // Login Screen
   if (!session) {
     return (
-      <div className="h-screen w-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-slate-100 overflow-hidden relative">
+      <div className="h-screen w-screen bg-[#020617] flex flex-col items-center justify-center p-6 text-slate-100 overflow-hidden relative">
         <div className="scanline"></div>
         <div className="absolute inset-0 opacity-10 pointer-events-none overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_50%,_#1e293b_0%,_transparent_100%)] animate-pulse" />
@@ -256,68 +255,70 @@ const App: React.FC = () => {
         </div>
         
         <div className="z-10 w-full max-w-4xl flex flex-col items-center">
-          <div className="bg-blue-600 p-4 rounded-3xl shadow-2xl shadow-blue-500/20 mb-6 border border-blue-400/30">
+          <div className="bg-blue-600 p-5 rounded-[2rem] shadow-2xl shadow-blue-500/20 mb-8 border border-blue-400/30">
             <Icons.Police />
           </div>
-          <h1 className="text-5xl font-black tracking-[0.3em] mb-2 drop-shadow-2xl">NEXUS<span className="text-blue-500">CAD</span></h1>
-          <div className="flex items-center gap-3 mb-12">
-            <p className="text-slate-500 font-mono text-xs uppercase tracking-widest">Global Ops Node: </p>
-            <span className="px-2 py-1 bg-slate-900 border border-slate-800 rounded text-xs font-mono text-blue-400">{roomId}</span>
+          <h1 className="text-6xl font-black tracking-[0.2em] mb-4 drop-shadow-2xl">NEXUS<span className="text-blue-500">CAD</span></h1>
+          <div className="flex items-center gap-3 mb-16">
+            <p className="text-slate-600 font-mono text-[10px] uppercase tracking-[0.3em]">SECURE ACCESS POINT: </p>
+            <span className="px-3 py-1 bg-slate-900 border border-slate-800 rounded-lg text-xs font-mono text-blue-400 shadow-inner">{roomId}</span>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-8 w-full">
-            <div className="bg-slate-900/50 border border-slate-800 p-8 rounded-3xl backdrop-blur-xl flex flex-col shadow-2xl">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-3 bg-blue-600/10 rounded-2xl text-blue-400 border border-blue-500/20"><Icons.Send /></div>
-                <h2 className="text-xl font-bold tracking-tight">COMMUNICATIONS HUB</h2>
+          <div className="grid md:grid-cols-2 gap-10 w-full">
+            {/* Dispatcher Portal */}
+            <div className="bg-slate-900/40 border border-slate-800/60 p-10 rounded-[2.5rem] backdrop-blur-2xl flex flex-col shadow-2xl hover:border-blue-500/30 transition-all group">
+              <div className="flex items-center gap-4 mb-8">
+                <div className="p-4 bg-blue-600/10 rounded-2xl text-blue-400 border border-blue-500/20 group-hover:bg-blue-600/20 transition-all"><Icons.Send /></div>
+                <h2 className="text-2xl font-black tracking-tight uppercase">Communications</h2>
               </div>
-              <p className="text-sm text-slate-400 mb-6 flex-1 leading-relaxed">Authorized Dispatch access only. Control units, sync field data, and manage emergency incidents globally.</p>
+              <p className="text-sm text-slate-500 mb-8 flex-1 leading-relaxed">Central Command Terminal. Verify identity to initialize operational oversight.</p>
               <div className="space-y-4">
                 <input 
                   type="password" 
-                  placeholder="Dispatcher Credentials" 
+                  placeholder="AUTHORIZATION_CODE" 
                   value={dispatchPass}
                   onChange={(e) => setDispatchPass(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleLoginDispatch()}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-4 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder:text-slate-700 font-bold"
+                  className="w-full bg-slate-950/80 border border-slate-800 rounded-2xl px-6 py-5 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder:text-slate-800 font-bold tracking-widest"
                 />
                 <button 
                   onClick={handleLoginDispatch}
-                  className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-xl font-black text-xs uppercase tracking-[0.2em] transition-all shadow-xl shadow-blue-900/40 active:scale-95"
+                  className="w-full bg-blue-600 hover:bg-blue-500 py-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] transition-all shadow-xl shadow-blue-900/40 active:scale-95"
                 >
-                  Authorize Terminal
+                  INITIALIZE TERMINAL
                 </button>
               </div>
             </div>
 
-            <div className="bg-slate-900/50 border border-slate-800 p-8 rounded-3xl backdrop-blur-xl flex flex-col shadow-2xl">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-3 bg-emerald-600/10 rounded-2xl text-emerald-400 border border-emerald-500/20"><Icons.Police /></div>
-                <h2 className="text-xl font-bold tracking-tight">FIELD OPERATIONS</h2>
+            {/* Field Unit Portal */}
+            <div className="bg-slate-900/40 border border-slate-800/60 p-10 rounded-[2.5rem] backdrop-blur-2xl flex flex-col shadow-2xl hover:border-emerald-500/30 transition-all group">
+              <div className="flex items-center gap-4 mb-8">
+                <div className="p-4 bg-emerald-600/10 rounded-2xl text-emerald-400 border border-emerald-500/20 group-hover:bg-emerald-600/20 transition-all"><Icons.Police /></div>
+                <h2 className="text-2xl font-black tracking-tight uppercase">Field Ops</h2>
               </div>
               <div className="space-y-4 flex-1">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-4">
                   <input 
                     type="text" 
-                    placeholder="Roblox User" 
+                    placeholder="ROBLOX_ID" 
                     value={onboardingData.roblox}
                     onChange={(e) => setOnboardingData(prev => ({...prev, roblox: e.target.value}))}
-                    className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-4 text-sm focus:ring-2 focus:ring-emerald-500 outline-none font-bold placeholder:text-slate-700"
+                    className="bg-slate-950/80 border border-slate-800 rounded-2xl px-5 py-5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none font-bold placeholder:text-slate-800"
                   />
                   <input 
                     type="text" 
-                    placeholder="Callsign" 
+                    placeholder="CALLSIGN" 
                     value={onboardingData.callsign}
                     onChange={(e) => setOnboardingData(prev => ({...prev, callsign: e.target.value}))}
-                    className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-4 text-sm focus:ring-2 focus:ring-emerald-500 outline-none uppercase font-mono font-bold placeholder:text-slate-700"
+                    className="bg-slate-950/80 border border-slate-800 rounded-2xl px-5 py-5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none uppercase font-mono font-bold placeholder:text-slate-800"
                   />
                 </div>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-3">
                   {[UnitType.POLICE, UnitType.FIRE, UnitType.EMS].map(t => (
                     <button 
                       key={t}
                       onClick={() => setOnboardingData(prev => ({...prev, type: t}))}
-                      className={`py-3 rounded-xl border text-[10px] font-black uppercase transition-all ${onboardingData.type === t ? 'bg-emerald-600 border-emerald-400 text-white shadow-lg' : 'bg-slate-950 border-slate-800 text-slate-500'}`}
+                      className={`py-4 rounded-2xl border text-[10px] font-black uppercase transition-all tracking-widest ${onboardingData.type === t ? 'bg-emerald-600 border-emerald-400 text-white shadow-lg' : 'bg-slate-950/80 border-slate-800 text-slate-600 hover:border-slate-700'}`}
                     >
                       {t}
                     </button>
@@ -325,9 +326,9 @@ const App: React.FC = () => {
                 </div>
                 <button 
                   onClick={handleJoinUnit}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 py-4 rounded-xl font-black text-xs uppercase tracking-[0.2em] transition-all shadow-xl shadow-emerald-900/40 active:scale-95"
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 py-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] transition-all shadow-xl shadow-emerald-900/40 active:scale-95 mt-4"
                 >
-                  Join Ops Network
+                  ESTABLISH UPLINK
                 </button>
               </div>
             </div>
@@ -335,9 +336,9 @@ const App: React.FC = () => {
           
           <button 
             onClick={() => window.location.hash = Math.random().toString(36).substr(2, 9)}
-            className="mt-8 text-[10px] font-black text-slate-600 hover:text-slate-400 uppercase tracking-widest transition-colors"
+            className="mt-12 text-[10px] font-black text-slate-700 hover:text-slate-400 uppercase tracking-[0.4em] transition-colors bg-slate-900/20 px-6 py-2 rounded-full border border-slate-800/40"
           >
-            Generate New Private Room
+            ROTATE PRIVATE FREQUENCY
           </button>
         </div>
       </div>
@@ -345,76 +346,76 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-slate-950 text-slate-100 selection:bg-blue-500/30">
-      <header className={`h-16 ${session.role === 'DISPATCH' ? 'bg-slate-900 border-blue-500/30' : 'bg-slate-900 border-emerald-500/30'} border-b flex items-center justify-between px-6 shrink-0 shadow-lg z-20`}>
-        <div className="flex items-center gap-4">
-          <div className={`${session.role === 'DISPATCH' ? 'bg-blue-600 shadow-blue-500/30' : 'bg-emerald-600 shadow-emerald-500/30'} p-2 rounded-xl shadow-lg border border-white/10`}>
+    <div className="flex flex-col h-screen overflow-hidden bg-[#020617] text-slate-100 selection:bg-blue-500/30">
+      <header className={`h-16 ${session.role === 'DISPATCH' ? 'bg-slate-900/50 border-blue-500/20' : 'bg-slate-900/50 border-emerald-500/20'} border-b flex items-center justify-between px-8 shrink-0 backdrop-blur-xl z-20`}>
+        <div className="flex items-center gap-6">
+          <div className={`${session.role === 'DISPATCH' ? 'bg-blue-600 shadow-blue-500/40' : 'bg-emerald-600 shadow-emerald-500/40'} p-2 rounded-xl border border-white/20 shadow-lg`}>
             <Icons.Police />
           </div>
           <div className="flex flex-col">
             <h1 className="text-xl font-black tracking-tighter uppercase leading-none">Nexus<span className={session.role === 'DISPATCH' ? 'text-blue-500' : 'text-emerald-500'}>{session.role}</span></h1>
-            <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest mt-1">Room: {roomId}</span>
+            <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest mt-1">FREQ: {roomId}</span>
           </div>
-          <div className="h-6 w-px bg-slate-800 mx-2" />
+          <div className="h-8 w-px bg-slate-800 mx-2" />
           <div className="flex flex-col leading-none">
-            <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Active Operator</span>
+            <span className="text-[10px] text-slate-600 font-black uppercase tracking-widest mb-1">Active Trace</span>
             <span className="text-xs font-mono font-bold text-slate-300">
-              {session.role === 'DISPATCH' ? 'DISPATCH_HQ' : `${session.callsign} | ${session.username}`}
+              {session.role === 'DISPATCH' ? 'COMMS_LEAD' : `${session.callsign} [${session.username}]`}
             </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-6">
           {session.role === 'DISPATCH' && (
-            <button onClick={() => setIsCreatingCall(true)} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 px-5 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-widest shadow-xl shadow-blue-900/40 transition-all active:scale-95">
-              <Icons.Plus /> New Dispatch
+            <button onClick={() => setIsCreatingCall(true)} className="flex items-center gap-3 bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-2xl shadow-blue-900/40 transition-all active:scale-95">
+              <Icons.Plus /> NEW_INCIDENT
             </button>
           )}
-          <div className="h-6 w-px bg-slate-800 mx-2" />
-          <button onClick={() => setSession(null)} className="text-[10px] font-black uppercase text-slate-600 hover:text-red-500 transition-colors">Term-Exit</button>
+          <div className="h-8 w-px bg-slate-800 mx-2" />
+          <button onClick={() => setSession(null)} className="text-[10px] font-black uppercase text-slate-600 hover:text-red-500 transition-colors tracking-[0.2em]">TERMINATE_SESSION</button>
         </div>
       </header>
 
       <main className="flex-1 flex overflow-hidden">
         {/* Left Side: Units Area */}
-        <aside className="w-80 border-r border-slate-800 bg-slate-900/40 flex flex-col shrink-0 backdrop-blur-sm">
-          <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-            <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Personnel Status</h2>
+        <aside className="w-80 border-r border-slate-800/60 bg-slate-950/40 flex flex-col shrink-0 backdrop-blur-sm">
+          <div className="p-6 border-b border-slate-800 flex items-center justify-between">
+            <h2 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">Field Assets</h2>
             {session.role === 'DISPATCH' && (
-              <button onClick={() => { setEditingUnit(null); setIsManagingUnit(true); }} className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-400 transition-colors"><Icons.Plus /></button>
+              <button onClick={() => { setEditingUnit(null); setIsManagingUnit(true); }} className="p-2 bg-slate-900 border border-slate-800 hover:border-blue-500/50 rounded-xl text-slate-400 hover:text-blue-400 transition-all"><Icons.Plus /></button>
             )}
           </div>
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
             {units.length === 0 && (
-              <div className="text-center py-12 text-slate-700 font-mono text-[10px] uppercase">No field units synced</div>
+              <div className="text-center py-20 text-slate-800 font-mono text-[10px] uppercase tracking-[0.2em]">0 Assets Active</div>
             )}
             {units.map(unit => (
-              <div key={unit.id} className={`p-4 rounded-2xl border transition-all group relative overflow-hidden ${unit.name === session.callsign ? 'bg-emerald-500/5 border-emerald-500/50 shadow-lg' : 'bg-slate-800/30 border-slate-800/50 hover:border-slate-700'}`}>
-                <div className="flex items-center justify-between mb-2">
+              <div key={unit.id} className={`p-5 rounded-[1.5rem] border transition-all group relative overflow-hidden ${unit.name === session.callsign ? 'bg-emerald-500/5 border-emerald-500/40 shadow-xl' : 'bg-slate-900/40 border-slate-800/50 hover:border-slate-700'}`}>
+                <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <span className="text-slate-500">{unit.type === UnitType.POLICE ? <Icons.Police /> : unit.type === UnitType.FIRE ? <Icons.Fire /> : <Icons.EMS />}</span>
+                    <span className="text-slate-600">{unit.type === UnitType.POLICE ? <Icons.Police /> : unit.type === UnitType.FIRE ? <Icons.Fire /> : <Icons.EMS />}</span>
                     <span className="font-mono font-black text-sm tracking-widest">{unit.name}</span>
                   </div>
-                  <div className={`text-[9px] px-2 py-0.5 rounded-lg border font-black ${STATUS_COLORS[unit.status]}`}>{unit.status.replace(/_/g, ' ')}</div>
+                  <div className={`text-[9px] px-2.5 py-1 rounded-lg border font-black tracking-widest ${STATUS_COLORS[unit.status]}`}>{unit.status.replace(/_/g, ' ')}</div>
                 </div>
-                <div className="text-[9px] text-slate-600 font-mono flex items-center justify-between mb-3">
-                   <span className="truncate max-w-[150px]">OP: {unit.robloxUser || 'AI_AGENT'}</span>
+                <div className="text-[10px] text-slate-600 font-mono flex items-center justify-between mb-4">
+                   <span className="truncate max-w-[140px]">USR: {unit.robloxUser || 'AI_VIRTUAL'}</span>
                    {session.role === 'DISPATCH' && (
-                     <div className="flex gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                     <div className="flex gap-4 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => { setEditingUnit(unit); setUnitNameInput(unit.name); setIsManagingUnit(true); }} className="hover:text-blue-400 transition-colors"><Icons.Edit /></button>
-                        <button onClick={() => { if(confirm('Purge unit?')) setUnits(units.filter(u => u.id !== unit.id)); }} className="hover:text-red-500 transition-colors"><Icons.Trash /></button>
+                        <button onClick={() => { if(confirm('Purge unit from system?')) setUnits(units.filter(u => u.id !== unit.id)); }} className="hover:text-red-500 transition-colors"><Icons.Trash /></button>
                      </div>
                    )}
                 </div>
                 
                 {(session.role === 'DISPATCH' || unit.name === session.callsign) && (
-                  <div className="grid grid-cols-5 gap-1 mt-1">
+                  <div className="grid grid-cols-5 gap-1.5">
                     {Object.values(UnitStatus).map(s => (
                       <button 
                         key={s} 
                         onClick={() => updateUnitStatus(unit.id, s)} 
                         title={s.replace(/_/g, ' ')}
-                        className={`text-[10px] py-1.5 rounded-lg border transition-all flex items-center justify-center font-black ${unit.status === s ? 'bg-slate-700 border-slate-500 text-white' : 'bg-slate-900/50 border-slate-800 text-slate-600 hover:text-slate-400'}`}
+                        className={`text-[10px] py-2 rounded-lg border transition-all flex items-center justify-center font-black ${unit.status === s ? 'bg-slate-800 border-slate-600 text-white shadow-inner' : 'bg-slate-950/40 border-slate-800 text-slate-700 hover:text-slate-400'}`}
                       >
                         {s.charAt(0)}
                       </button>
@@ -425,9 +426,9 @@ const App: React.FC = () => {
                 {session.role === 'DISPATCH' && activeIncidentId && unit.status === UnitStatus.AVAILABLE && (
                   <button 
                     onClick={() => assignUnitToIncident(unit.id, activeIncidentId)} 
-                    className="w-full mt-3 py-2 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 rounded-xl border border-blue-500/20 text-[10px] font-black uppercase tracking-widest transition-all"
+                    className="w-full mt-4 py-2.5 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 rounded-xl border border-blue-500/20 text-[10px] font-black uppercase tracking-widest transition-all"
                   >
-                    Attach to Call
+                    ATTACH TO INCIDENT
                   </button>
                 )}
               </div>
@@ -436,31 +437,31 @@ const App: React.FC = () => {
         </aside>
 
         {/* Center: Main Dashboard */}
-        <section className="flex-1 flex flex-col min-w-0 bg-slate-950">
+        <section className="flex-1 flex flex-col min-w-0 bg-[#020617]">
           {/* Active Call Strip */}
-          <div className="h-44 shrink-0 border-b border-slate-800 bg-slate-900/20 flex p-5 gap-5 overflow-x-auto items-center">
+          <div className="h-44 shrink-0 border-b border-slate-800/60 bg-slate-950/20 flex p-6 gap-6 overflow-x-auto items-center custom-scrollbar">
             {incidents.filter(i => i.status === 'ACTIVE').length === 0 && (
-              <div className="w-full text-center text-slate-700 font-mono text-[11px] uppercase tracking-[0.3em] opacity-50">Operational Standby - No Active Incidents</div>
+              <div className="w-full text-center text-slate-800 font-mono text-[11px] uppercase tracking-[0.4em] opacity-40">Operational Silence - Monitoring Frequencies</div>
             )}
             {incidents.filter(i => i.status === 'ACTIVE').map(incident => (
               <div 
                 key={incident.id} 
                 onClick={() => setActiveIncidentId(incident.id)} 
-                className={`w-80 shrink-0 p-5 rounded-3xl border cursor-pointer transition-all relative overflow-hidden ${activeIncidentId === incident.id ? 'bg-blue-900/10 border-blue-500 shadow-2xl scale-[1.02]' : 'bg-slate-900/40 border-slate-800 hover:border-slate-700 hover:bg-slate-900/60'}`}
+                className={`w-80 shrink-0 p-6 rounded-[2rem] border cursor-pointer transition-all relative overflow-hidden ${activeIncidentId === incident.id ? 'bg-blue-900/5 border-blue-500 shadow-2xl scale-[1.02]' : 'bg-slate-900/30 border-slate-800/50 hover:border-slate-700 hover:bg-slate-900/50'}`}
               >
-                <div className="flex justify-between items-start mb-3">
-                  <span className="text-[10px] font-mono font-black text-slate-500">{incident.id}</span>
+                <div className="flex justify-between items-start mb-4">
+                  <span className="text-[10px] font-mono font-black text-slate-600">{incident.id}</span>
                   <span className={`text-[10px] uppercase font-black tracking-widest ${PRIORITY_COLORS[incident.priority]}`}>{incident.priority}</span>
                 </div>
                 <div className="font-black text-sm truncate mb-1 uppercase tracking-wider">{incident.callType}</div>
-                <div className="text-[11px] text-slate-400 truncate mb-4 font-medium italic">@{incident.location}</div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="text-[11px] text-slate-500 truncate mb-5 font-medium italic">LOC: {incident.location}</div>
+                <div className="flex flex-wrap gap-2">
                   {incident.assignedUnits.map(uId => (
-                    <span key={uId} className="text-[9px] bg-slate-900/80 px-2 py-1 rounded-lg border border-slate-800 font-mono font-bold text-blue-400">
+                    <span key={uId} className="text-[9px] bg-slate-950 border border-slate-800 px-2.5 py-1 rounded-lg font-mono font-bold text-blue-400">
                       {units.find(u => u.id === uId)?.name || '...'}
                     </span>
                   ))}
-                  {incident.assignedUnits.length === 0 && <span className="text-[9px] text-slate-600 font-mono uppercase">Unassigned</span>}
+                  {incident.assignedUnits.length === 0 && <span className="text-[9px] text-slate-700 font-mono uppercase tracking-widest">NO_ASSETS</span>}
                 </div>
               </div>
             ))}
@@ -471,171 +472,163 @@ const App: React.FC = () => {
             <div className="flex-1 flex flex-col p-8 overflow-hidden">
                <div className="flex justify-between items-start mb-10">
                   <div>
-                    <div className="flex items-center gap-5 mb-3">
-                      <h2 className="text-4xl font-black text-white uppercase tracking-tighter drop-shadow-md">{activeIncident.callType}</h2>
-                      <span className={`px-5 py-2 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] ${PRIORITY_COLORS[activeIncident.priority]} border-2 border-current bg-slate-950 shadow-lg`}>
+                    <div className="flex items-center gap-6 mb-4">
+                      <h2 className="text-5xl font-black text-white uppercase tracking-tighter drop-shadow-xl">{activeIncident.callType}</h2>
+                      <span className={`px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] ${PRIORITY_COLORS[activeIncident.priority]} border-2 border-current bg-[#020617] shadow-xl`}>
                         {activeIncident.priority} PRIORITY
                       </span>
                     </div>
-                    <div className="flex items-center gap-8 text-slate-500 font-black uppercase tracking-[0.2em] text-[11px]">
-                      <span className="flex items-center gap-2"><Icons.Search /> <span className="text-slate-300">{activeIncident.location}</span></span>
-                      <span className="flex items-center gap-2 text-blue-500/80"><Icons.Police /> {activeIncident.assignedUnits.length} FIELD UNITS SYNCED</span>
+                    <div className="flex items-center gap-10 text-slate-600 font-black uppercase tracking-[0.3em] text-[11px]">
+                      <span className="flex items-center gap-3"><Icons.Search /> <span className="text-slate-300">{activeIncident.location}</span></span>
+                      <span className="flex items-center gap-3 text-blue-500/60"><Icons.Police /> {activeIncident.assignedUnits.length} UNITS ATTACHED</span>
                     </div>
                   </div>
                   {session.role === 'DISPATCH' && (
                     <button 
                       onClick={() => closeIncident(activeIncident.id)} 
-                      className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-8 py-3 rounded-2xl shadow-xl font-black text-[11px] tracking-[0.2em] transition-all border border-red-500/30 active:scale-95"
+                      className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-10 py-4 rounded-[1.5rem] shadow-2xl font-black text-[11px] tracking-[0.3em] transition-all border border-red-500/20 active:scale-95"
                     >
-                      TERMINATE CALL
+                      TERMINATE_INCIDENT
                     </button>
                   )}
                </div>
 
-               <div className="flex-1 flex flex-col bg-slate-900/30 rounded-[2.5rem] border border-slate-800/50 overflow-hidden shadow-3xl backdrop-blur-md">
-                  <div className="bg-slate-900/80 border-b border-slate-800 p-5 flex items-center justify-between">
+               <div className="flex-1 flex flex-col bg-slate-950/40 rounded-[3rem] border border-slate-800/40 overflow-hidden shadow-3xl backdrop-blur-xl">
+                  <div className="bg-slate-900/60 border-b border-slate-800 p-6 flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <div className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse shadow-[0_0_10px_#3b82f6]" />
-                      <span className="text-[11px] font-black uppercase tracking-[0.3em] text-slate-400">Tactical Operational Feed</span>
+                      <div className="w-3 h-3 rounded-full bg-blue-500 animate-pulse shadow-[0_0_15px_#3b82f6]" />
+                      <span className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-500">Live Mission Feed</span>
                     </div>
-                    <span className="text-[10px] font-mono text-slate-600 uppercase">Secure Link: AES-256</span>
+                    <span className="text-[10px] font-mono text-slate-700 uppercase tracking-widest">E2EE Uplink: {activeIncident.id}</span>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-8 space-y-5 font-mono text-sm leading-relaxed scroll-smooth custom-scrollbar">
+                  <div className="flex-1 overflow-y-auto p-10 space-y-6 font-mono text-sm leading-relaxed scroll-smooth custom-scrollbar">
                     {activeIncident.logs.map(log => (
-                      <div key={log.id} className="flex gap-6 animate-in slide-in-from-left duration-300 group">
-                        <span className="text-slate-700 font-black text-[10px] mt-1 shrink-0">[{log.timestamp}]</span>
+                      <div key={log.id} className="flex gap-8 animate-in slide-in-from-left duration-300 group">
+                        <span className="text-slate-800 font-black text-[10px] mt-1 shrink-0">[{log.timestamp}]</span>
                         <div className="flex-1">
-                           <span className={`font-black mr-3 uppercase tracking-widest ${log.sender === 'DISPATCH' ? 'text-blue-500' : 'text-emerald-500'}`}>{log.sender}:</span>
-                           <span className="text-slate-300 group-hover:text-white transition-colors">{log.message}</span>
+                           <span className={`font-black mr-4 uppercase tracking-widest ${log.sender === 'DISPATCH' ? 'text-blue-500' : 'text-emerald-500'}`}>{log.sender}:</span>
+                           <span className="text-slate-400 group-hover:text-slate-100 transition-colors">{log.message}</span>
                         </div>
                       </div>
                     ))}
                     {activeIncident.logs.length === 0 && (
-                      <div className="text-slate-800 uppercase font-mono text-[10px] text-center py-20">Initialization Required - Log Empty</div>
+                      <div className="text-slate-900 uppercase font-mono text-[10px] text-center py-20 tracking-[0.5em]">No Logged Transmissions</div>
                     )}
                   </div>
-                  <div className="p-8 bg-slate-900/60 border-t border-slate-800/50">
-                    <div className="flex gap-4">
+                  <div className="p-10 bg-slate-950/60 border-t border-slate-800/40">
+                    <div className="flex gap-5">
                       <input 
                         type="text" 
                         value={logInput} 
                         onChange={(e) => setLogInput(e.target.value)} 
                         onKeyDown={(e) => e.key === 'Enter' && handleAddLog()} 
-                        placeholder="Transmit tactical update..." 
-                        className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-6 py-5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder:text-slate-800 transition-all" 
+                        placeholder="Log status update..." 
+                        className="flex-1 bg-slate-950 border border-slate-800/80 rounded-[1.5rem] px-8 py-6 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder:text-slate-900 transition-all shadow-inner" 
                       />
                       <button 
                         onClick={() => setIsAIAssisting(!isAIAssisting)} 
-                        title="AI Tactical Intelligence"
-                        className={`p-5 rounded-2xl border transition-all flex items-center justify-center ${isAIAssisting ? 'bg-blue-600 text-white border-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.5)]' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600'}`}
+                        className={`p-6 rounded-[1.5rem] border transition-all flex items-center justify-center ${isAIAssisting ? 'bg-blue-600 text-white border-blue-400 shadow-2xl' : 'bg-slate-900 border-slate-800 text-slate-600 hover:text-white hover:border-slate-700'}`}
                       >
                         <Icons.Sparkles />
                       </button>
                       <button 
                         onClick={handleAddLog} 
-                        className="bg-blue-600 hover:bg-blue-500 p-5 rounded-2xl shadow-xl shadow-blue-900/40 transition-all active:scale-95 border border-white/10"
+                        className="bg-blue-600 hover:bg-blue-500 p-6 rounded-[1.5rem] shadow-2xl shadow-blue-900/40 transition-all active:scale-95 border border-white/10"
                       >
                         <Icons.Send />
                       </button>
                     </div>
                     {isAIAssisting && (
-                      <div className="mt-3 text-[10px] text-blue-400 font-black uppercase tracking-[0.2em] animate-pulse flex items-center gap-2">
-                        <Icons.Sparkles /> AI Tactical Assistant Active
+                      <div className="mt-4 text-[10px] text-blue-400 font-black uppercase tracking-[0.3em] animate-pulse flex items-center gap-3">
+                        <Icons.Sparkles /> Intelligent Support Enabled
                       </div>
                     )}
                   </div>
                </div>
             </div>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center opacity-20">
-               <div className="w-32 h-32 mb-8 bg-slate-900 rounded-[2.5rem] flex items-center justify-center border border-slate-800 shadow-2xl rotate-2">
+            <div className="flex-1 flex flex-col items-center justify-center opacity-10 grayscale">
+               <div className="w-40 h-40 mb-10 bg-slate-900 rounded-[3rem] flex items-center justify-center border border-slate-800 shadow-3xl">
                   <Icons.Police />
                </div>
-               <h3 className="text-3xl font-black text-white tracking-[0.3em] mb-4 uppercase">System Standby</h3>
-               <p className="max-w-xs text-center text-xs font-mono text-slate-500 uppercase tracking-widest leading-loose">Awaiting operational broadcast from Communications Center.</p>
+               <h3 className="text-4xl font-black text-white tracking-[0.5em] mb-4 uppercase">Ops Standby</h3>
+               <p className="max-w-md text-center text-xs font-mono text-slate-500 uppercase tracking-widest leading-loose">Monitoring dispatch protocols. Ready for incident initialization.</p>
             </div>
           )}
         </section>
       </main>
 
-      {/* Unit Management Modal */}
-      {isManagingUnit && session.role === 'DISPATCH' && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/95 backdrop-blur-md p-6">
-          <div className="bg-slate-900 border border-slate-800 rounded-[2rem] shadow-3xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-             <div className="bg-slate-800/50 p-6 border-b border-slate-800 flex justify-between items-center">
-                <h3 className="font-black text-white uppercase tracking-[0.2em] text-sm">{editingUnit ? 'Edit Unit Assignment' : 'New Unit Commission'}</h3>
-                <button onClick={() => setIsManagingUnit(false)} className="text-slate-500 hover:text-white transition-colors p-2"><Icons.Trash /></button>
-             </div>
-             <div className="p-8 space-y-6">
-                <div className="space-y-3">
-                   <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Callsign / Tactical ID</label>
+      {/* Modals & Overlays */}
+      {isManagingUnit && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-8">
+          <div className="bg-slate-900 border border-slate-800 rounded-[3rem] shadow-3xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+             <div className="p-10 space-y-8">
+                <div className="space-y-4">
+                   <label className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em]">Asset Callsign</label>
                    <input 
                       type="text" 
                       value={unitNameInput} 
                       onChange={(e) => setUnitNameInput(e.target.value)} 
-                      placeholder="e.g. ADAM-10" 
-                      className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 text-sm font-black text-white uppercase outline-none focus:ring-2 focus:ring-blue-500 transition-all" 
+                      placeholder="ADAM-1" 
+                      className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 text-sm font-black text-white uppercase outline-none focus:ring-2 focus:ring-blue-500 transition-all" 
                     />
                 </div>
-                <div className="space-y-3">
-                   <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Departmental Class</label>
+                <div className="space-y-4">
+                   <label className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em]">Operational Category</label>
                    <div className="grid grid-cols-3 gap-3">
                       {Object.values(UnitType).map(t => (
-                        <button key={t} onClick={() => setUnitTypeInput(t)} className={`py-4 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${unitTypeInput === t ? 'bg-blue-600 border-blue-400 text-white shadow-lg' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'}`}>{t}</button>
+                        <button key={t} onClick={() => setUnitTypeInput(t)} className={`py-5 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${unitTypeInput === t ? 'bg-blue-600 border-blue-400 text-white shadow-xl' : 'bg-slate-950 border-slate-800 text-slate-700 hover:border-slate-700'}`}>{t}</button>
                       ))}
                    </div>
                 </div>
-             </div>
-             <div className="p-6 bg-slate-800/30 border-t border-slate-800 flex gap-4">
-                <button onClick={() => setIsManagingUnit(false)} className="flex-1 font-black text-[10px] text-slate-500 uppercase tracking-widest">Abort</button>
-                <button onClick={handleSaveUnit} className="flex-[2] bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-blue-900/30 transition-all active:scale-95">Establish Unit</button>
+                <div className="flex gap-4 pt-4">
+                  <button onClick={() => setIsManagingUnit(false)} className="flex-1 font-black text-[11px] text-slate-500 uppercase tracking-[0.3em]">Cancel</button>
+                  <button onClick={handleSaveUnit} className="flex-[2] bg-blue-600 hover:bg-blue-500 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-2xl shadow-blue-900/30 transition-all">Establish_Asset</button>
+                </div>
              </div>
           </div>
         </div>
       )}
 
-      {/* New Incident Modal */}
-      {isCreatingCall && session.role === 'DISPATCH' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/95 backdrop-blur-md p-6">
-          <div className="bg-slate-900 border border-slate-800 rounded-[2.5rem] shadow-3xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-200">
-             <div className="bg-slate-800/50 p-6 border-b border-slate-800 flex justify-between items-center">
-               <h3 className="text-lg font-black tracking-[0.2em] uppercase text-blue-500 flex items-center gap-3"><Icons.Plus /> Emergency Dispatch</h3>
-               <button onClick={() => setIsCreatingCall(false)} className="text-slate-500 hover:text-white p-2 transition-colors"><Icons.Trash /></button>
-             </div>
-             <div className="p-8 space-y-8">
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Incident Classification</label>
-                  <select value={newCallType} onChange={(e) => setNewCallType(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 text-sm font-black outline-none focus:ring-2 focus:ring-blue-500 appearance-none text-white transition-all">{CALL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
-                </div>
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Grid Location / Landmark</label>
-                  <input type="text" placeholder="Coordinates or Address..." value={newLocation} onChange={(e) => setNewLocation(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 text-sm font-black outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder:text-slate-800 transition-all" />
-                </div>
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Response Priority</label>
-                  <div className="grid grid-cols-4 gap-2">
-                    {Object.values(Priority).map(p => <button key={p} onClick={() => setNewPriority(p)} className={`py-4 rounded-xl border text-[10px] font-black uppercase transition-all tracking-widest ${newPriority === p ? 'bg-blue-600 border-blue-400 text-white shadow-lg' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'}`}>{p}</button>)}
+      {isCreatingCall && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-8">
+          <div className="bg-slate-900 border border-slate-800 rounded-[3rem] shadow-3xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+             <div className="p-12 space-y-10">
+                <div className="grid grid-cols-2 gap-8">
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em]">Incident Type</label>
+                    <select value={newCallType} onChange={(e) => setNewCallType(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 text-sm font-black outline-none focus:ring-2 focus:ring-blue-500 appearance-none text-white transition-all">{CALL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
+                  </div>
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em]">Priority Code</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {Object.values(Priority).map(p => <button key={p} onClick={() => setNewPriority(p)} className={`py-4 rounded-xl border text-[10px] font-black uppercase transition-all tracking-widest ${newPriority === p ? 'bg-blue-600 border-blue-400 text-white' : 'bg-slate-950 border-slate-800 text-slate-700'}`}>{p}</button>)}
+                    </div>
                   </div>
                 </div>
-             </div>
-             <div className="p-8 bg-slate-800/30 border-t border-slate-800 flex gap-4">
-               <button onClick={() => setIsCreatingCall(false)} className="flex-1 font-black text-[10px] text-slate-500 uppercase tracking-widest hover:text-white transition-colors">Abort</button>
-               <button onClick={createIncident} className="flex-[3] bg-blue-600 hover:bg-blue-500 text-white py-5 rounded-2xl font-black text-sm uppercase tracking-[0.3em] shadow-2xl shadow-blue-500/20 active:scale-95 transition-all">Broadcast Call</button>
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em]">Coordinates / Location</label>
+                  <input type="text" placeholder="123 MAIN ST / GRID-4" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-6 text-sm font-black outline-none focus:ring-2 focus:ring-blue-500 text-white transition-all shadow-inner" />
+                </div>
+                <div className="flex gap-6 pt-6">
+                  <button onClick={() => setIsCreatingCall(false)} className="flex-1 font-black text-[11px] text-slate-500 uppercase tracking-[0.3em] hover:text-white transition-colors">Discard</button>
+                  <button onClick={createIncident} className="flex-[3] bg-blue-600 hover:bg-blue-500 text-white py-6 rounded-2xl font-black text-sm uppercase tracking-[0.4em] shadow-2xl shadow-blue-500/20 active:scale-95 transition-all">Broadcast_Incident</button>
+                </div>
              </div>
           </div>
         </div>
       )}
 
       {/* Footer System HUD */}
-      <footer className="h-10 bg-slate-900 border-t border-slate-800 flex items-center px-6 justify-between shrink-0 text-[10px] font-mono tracking-[0.2em] text-slate-600 uppercase font-black z-20">
-        <div className="flex gap-8">
-          <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" /> Global Sync: Operational</span>
-          <span className="hidden sm:inline">Node_Enc: Nexus_CAD_V5_{roomId.toUpperCase()}</span>
-          <span>Room: {roomId}</span>
+      <footer className="h-10 bg-slate-950 border-t border-slate-900 flex items-center px-8 justify-between shrink-0 text-[10px] font-mono tracking-[0.3em] text-slate-700 uppercase font-black z-20">
+        <div className="flex gap-10">
+          <span className="flex items-center gap-2"><div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_5px_#10b981]" /> SYNC: OK</span>
+          <span className="hidden sm:inline">OPS_ROOM_{roomId.toUpperCase()}</span>
+          <span>LATENCY: 4MS</span>
         </div>
-        <div className="flex gap-4">
-          <span className="hidden md:inline">Signal_Latency: 12ms</span>
-          <span className="text-slate-500">© 2025 Nexus_Dispatch_Multi_Point_Network</span>
+        <div className="flex gap-6">
+          <span className="hidden md:inline">ENCR: AES-256-GCM</span>
+          <span className="text-slate-800">NEXUS_v5.1.0_PROD</span>
         </div>
       </footer>
     </div>
