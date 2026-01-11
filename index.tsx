@@ -120,9 +120,11 @@ const Icons = {
 };
 
 // --- GEMINI SERVICE ---
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Initialize Gemini with the API key from environment variables
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
 const assistDispatcher = async (notes: string) => {
+  if (!process.env.API_KEY) return notes;
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
@@ -180,7 +182,6 @@ const App: React.FC = () => {
         } catch (e) {}
       }
     });
-    // Fix: Explicitly wrap the cleanup function to ensure it doesn't return the Gun chain object
     return () => {
       room.get('state').off();
     };
@@ -376,5 +377,5 @@ const App: React.FC = () => {
 
 const rootElement = document.getElementById('root');
 if (rootElement) {
-  ReactDOM.createRoot(rootElement).render(<React.StrictMode><App /></React.StrictMode>);
+  ReactDOM.createRoot(rootElement).render(<App />);
 }
