@@ -1,11 +1,10 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// Initialize Gemini with the API key from environment variables as per guidelines
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const assistDispatcher = async (notes: string) => {
-  if (!process.env.API_KEY) return notes;
-
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
@@ -18,6 +17,7 @@ export const assistDispatcher = async (notes: string) => {
       }
     });
 
+    // Use the .text property directly as per Google GenAI SDK guidelines
     return response.text?.trim() || notes;
   } catch (error) {
     console.error("Gemini assistance error:", error);
@@ -35,6 +35,7 @@ export const suggestUnits = async (callType: string, location: string) => {
         maxOutputTokens: 100,
       }
     });
+    // Use the .text property directly as per Google GenAI SDK guidelines
     return response.text?.trim();
   } catch (error) {
     return null;
