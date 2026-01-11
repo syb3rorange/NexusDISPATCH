@@ -20,20 +20,34 @@
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: #0f172a; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        
+        /* Tactical grid background */
+        body::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background-image: linear-gradient(rgba(30, 41, 59, 0.2) 1px, transparent 1px),
+                              linear-gradient(90deg, rgba(30, 41, 59, 0.2) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
     </style>
 <script type="importmap">
 {
   "imports": {
-    "@google/genai": "https://esm.sh/@google/genai@^1.35.0",
-    "react/": "https://esm.sh/react@^19.2.3/",
     "react": "https://esm.sh/react@^19.2.3",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "gun": "https://esm.sh/gun@0.2020.1239"
+    "@google/genai": "https://esm.sh/@google/genai@^1.35.0",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "gun": "https://esm.sh/gun@^0.2020.1241"
   }
 }
 </script>
 </head>
 <body>
     <div id="root"></div>
+    <!-- Explicitly load the app entry point for Vite/Vercel build -->
+    <script type="module" src="/index.tsx"></script>
 </body>
 </html>
