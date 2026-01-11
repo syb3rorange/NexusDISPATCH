@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Gun from 'gun';
 import { Unit, Incident, UnitStatus, UnitType, Priority, IncidentLog, UserSession } from './types';
 import { CALL_TYPES, STATUS_COLORS, PRIORITY_COLORS, Icons } from './constants';
@@ -39,16 +39,19 @@ const App: React.FC = () => {
   const [isAIAssisting, setIsAIAssisting] = useState(false);
   const [isMobileMode, setIsMobileMode] = useState(window.innerWidth < 1024);
   const [mobileTab, setMobileTab] = useState<'UNITS' | 'INCIDENTS' | 'ACTIVE'>('INCIDENTS');
+  const [lastSyncTime, setLastSyncTime] = useState<number>(Date.now());
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
 
   const [newCallType, setNewCallType] = useState(CALL_TYPES[0]);
   const [newLocation, setNewLocation] = useState('');
   const [newPriority, setNewPriority] = useState<Priority>(Priority.MEDIUM);
 
-  // Fix: Explicitly cast Object.values to Unit[] to avoid 'unknown' type errors
   const units = useMemo(() => (Object.values(unitsMap) as Unit[]).sort((a,b) => a.id.localeCompare(b.id)), [unitsMap]);
-  // Fix: Explicitly cast Object.values to Incident[] to avoid 'unknown' type errors
   const incidents = useMemo(() => (Object.values(incidentsMap) as Incident[]).filter(i => i && i.status === 'ACTIVE'), [incidentsMap]);
   const activeIncident = useMemo(() => incidentsMap[activeIncidentId || ''], [incidentsMap, activeIncidentId]);
+
+  // Track incident count to detect new calls
+  const incidentCountRef = useRef(incidents.length);
 
   useEffect(() => {
     const profile = localStorage.getItem(STORAGE_KEY_PROFILE);
@@ -61,11 +64,12 @@ const App: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Granular Real-time Sync
+  // Real-time Sync Logic with "New Call" Detection
   useEffect(() => {
     const root = gun.get('nexus_cad_v7_final').get(roomId);
 
     root.get('units').map().on((data: any, id: string) => {
+      setLastSyncTime(Date.now());
       setUnitsMap(prev => {
         if (!data) {
           const newState = { ...prev };
@@ -77,12 +81,26 @@ const App: React.FC = () => {
     });
 
     root.get('incidents').map().on((data: any, id: string) => {
+      setLastSyncTime(Date.now());
       setIncidentsMap(prev => {
         if (!data) {
           const newState = { ...prev };
           delete newState[id];
           return newState;
         }
+
+        // Logic to notify units of new broadcasted incidents
+        if (session?.role === 'UNIT' && !prev[id] && data.status === 'ACTIVE') {
+          setAlertMessage(`🚨 NEW CALL: ${data.callType} @ ${data.location}`);
+          setTimeout(() => setAlertMessage(null), 5000);
+          
+          // Auto-focus emergency calls if idle
+          if (!activeIncidentId && (data.priority === Priority.EMERGENCY || data.priority === Priority.HIGH)) {
+            setActiveIncidentId(id);
+            if (isMobileMode) setMobileTab('ACTIVE');
+          }
+        }
+
         return { ...prev, [id]: data };
       });
     });
@@ -91,7 +109,7 @@ const App: React.FC = () => {
       root.get('units').off();
       root.get('incidents').off();
     };
-  }, [roomId]);
+  }, [roomId, session?.role, activeIncidentId, isMobileMode]);
 
   const handleLoginDispatch = () => {
     if (hasPersistentDispatch || dispatchPass === '10-4') {
@@ -277,11 +295,18 @@ const App: React.FC = () => {
           <div className="h-44 shrink-0 border-b border-slate-800/60 flex p-6 gap-6 overflow-x-auto items-center custom-scrollbar">
             {incidents.map(incident => (
               <div key={incident.id} onClick={() => setActiveIncidentId(incident.id)} className={`w-80 shrink-0 p-6 rounded-[2.5rem] border cursor-pointer transition-all relative ${activeIncidentId === incident.id ? 'bg-blue-900/5 border-blue-500 shadow-2xl scale-[1.02]' : 'bg-slate-900/30 border-slate-800/50 hover:bg-slate-900/40 hover:border-slate-700'}`}>
-                <div className="flex justify-between items-start mb-4"><span className="text-[10px] font-mono font-bold text-slate-600">{incident.id}</span><span className={`text-[10px] uppercase font-black tracking-widest ${PRIORITY_COLORS[incident.priority]}`}>{incident.priority}</span></div>
+                <div className="flex justify-between items-start mb-4">
+                  <span className="text-[10px] font-mono font-bold text-slate-600">{incident.id}</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+                    <span className={`text-[10px] uppercase font-black tracking-widest ${PRIORITY_COLORS[incident.priority]}`}>{incident.priority}</span>
+                  </div>
+                </div>
                 <div className="font-black text-sm truncate uppercase tracking-wide">{incident.callType}</div>
                 <div className="text-[11px] text-slate-500 truncate mb-5 italic">Loc: {incident.location}</div>
               </div>
             ))}
+            {incidents.length === 0 && <div className="flex-1 flex items-center justify-center opacity-20 text-[10px] font-black uppercase tracking-[0.5em] italic">Operational Silence</div>}
           </div>
           
           {activeIncident ? (
@@ -381,7 +406,6 @@ const App: React.FC = () => {
       </div>
       <nav className="h-16 bg-slate-950 border-t border-slate-900 grid grid-cols-3 shrink-0">
         <button onClick={() => setMobileTab('UNITS')} className={`flex flex-col items-center justify-center gap-1 ${mobileTab === 'UNITS' ? 'text-blue-500' : 'text-slate-700'}`}><Icons.Police /><span className="text-[8px] font-black uppercase">Units</span></button>
-        {/* Fix: Icons.AlertCircle is now available */}
         <button onClick={() => setMobileTab('INCIDENTS')} className={`flex flex-col items-center justify-center gap-1 ${mobileTab === 'INCIDENTS' ? 'text-blue-500' : 'text-slate-700'}`}><Icons.AlertCircle /><span className="text-[8px] font-black uppercase">Calls</span></button>
         <button onClick={() => setMobileTab('ACTIVE')} className={`flex flex-col items-center justify-center gap-1 ${mobileTab === 'ACTIVE' ? 'text-blue-500' : 'text-slate-700'}`}><Icons.Plus /><span className="text-[8px] font-black uppercase">Active</span></button>
       </nav>
@@ -407,6 +431,16 @@ const App: React.FC = () => {
           <button onClick={() => setSession(null)} className="text-[10px] font-black uppercase text-slate-600 hover:text-red-500 px-2 transition-colors">Sign Out</button>
         </div>
       </header>
+
+      {/* TACTICAL ALERT OVERLAY */}
+      {alertMessage && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] animate-in slide-in-from-top-4">
+          <div className="bg-red-600 text-white font-black text-[11px] uppercase tracking-[0.2em] px-8 py-4 rounded-full shadow-2xl border border-white/20 flex items-center gap-4">
+             <div className="animate-ping w-2 h-2 rounded-full bg-white"></div>
+             {alertMessage}
+          </div>
+        </div>
+      )}
       
       {isMobileMode ? <MobileUI /> : <DesktopUI />}
       
@@ -428,13 +462,13 @@ const App: React.FC = () => {
       <footer className="h-10 md:h-12 bg-slate-950 border-t border-slate-900 flex items-center px-4 md:px-8 justify-between shrink-0 text-[10px] font-mono tracking-widest text-slate-700 uppercase font-black z-20">
         <div className="flex gap-4 md:gap-10 items-center">
           <div className="flex items-center gap-2 md:gap-3">
-             <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981]"></div>
-             NETWORK: ONLINE
+             <div key={lastSyncTime} className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981] animate-pulse"></div>
+             NETWORK: STABLE (PULSE OK)
           </div>
           <div className="hidden sm:flex items-center gap-3 text-slate-800 italic">FREQU_ID: {roomId.toUpperCase()}</div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="text-slate-800 font-black hidden xs:block">NEXUS v5.9.2 // STABLE_UPLINK</div>
+          <div className="text-slate-800 font-black hidden xs:block">NEXUS v5.9.3 // PRODUCTION_AUTO_SYNC</div>
         </div>
       </footer>
     </div>
