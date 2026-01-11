@@ -14,6 +14,7 @@ const gun = Gun([
 
 const STORAGE_KEY_PROFILE = 'nexus_cad_profile_v7';
 const STORAGE_KEY_DISPATCH_AUTH = 'nexus_cad_dispatch_v7';
+const STORAGE_KEY_SESSION_TYPE = 'nexus_cad_session_type_v7';
 
 const App: React.FC = () => {
   const [roomId] = useState<string>(() => {
@@ -41,6 +42,7 @@ const App: React.FC = () => {
   const [mobileTab, setMobileTab] = useState<'UNITS' | 'INCIDENTS' | 'ACTIVE'>('INCIDENTS');
   const [lastSyncTime, setLastSyncTime] = useState<number>(Date.now());
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [newCallType, setNewCallType] = useState(CALL_TYPES[0]);
   const [newLocation, setNewLocation] = useState('');
@@ -50,21 +52,28 @@ const App: React.FC = () => {
   const incidents = useMemo(() => (Object.values(incidentsMap) as Incident[]).filter(i => i && i.status === 'ACTIVE'), [incidentsMap]);
   const activeIncident = useMemo(() => incidentsMap[activeIncidentId || ''], [incidentsMap, activeIncidentId]);
 
-  // Track incident count to detect new calls
-  const incidentCountRef = useRef(incidents.length);
-
   useEffect(() => {
     const profile = localStorage.getItem(STORAGE_KEY_PROFILE);
-    if (profile) setSavedProfile(JSON.parse(profile));
     const dispatchAuth = localStorage.getItem(STORAGE_KEY_DISPATCH_AUTH);
+    const sessionType = localStorage.getItem(STORAGE_KEY_SESSION_TYPE);
+    
+    if (profile) setSavedProfile(JSON.parse(profile));
     if (dispatchAuth === '10-4') setHasPersistentDispatch(true);
+
+    // Auto-restore session on refresh
+    if (sessionType === 'DISPATCH' && dispatchAuth === '10-4') {
+      setSession({ role: 'DISPATCH' });
+    } else if (sessionType === 'UNIT' && profile) {
+      const data = JSON.parse(profile);
+      setSession({ role: 'UNIT', username: data.roblox, callsign: data.callsign.toUpperCase(), unitType: data.type });
+    }
     
     const handleResize = () => setIsMobileMode(window.innerWidth < 1024);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Real-time Sync Logic with "New Call" Detection
+  // Real-time Sync Logic
   useEffect(() => {
     const root = gun.get('nexus_cad_v7_final').get(roomId);
 
@@ -89,12 +98,10 @@ const App: React.FC = () => {
           return newState;
         }
 
-        // Logic to notify units of new broadcasted incidents
         if (session?.role === 'UNIT' && !prev[id] && data.status === 'ACTIVE') {
           setAlertMessage(`🚨 NEW CALL: ${data.callType} @ ${data.location}`);
           setTimeout(() => setAlertMessage(null), 5000);
           
-          // Auto-focus emergency calls if idle
           if (!activeIncidentId && (data.priority === Priority.EMERGENCY || data.priority === Priority.HIGH)) {
             setActiveIncidentId(id);
             if (isMobileMode) setMobileTab('ACTIVE');
@@ -114,6 +121,7 @@ const App: React.FC = () => {
   const handleLoginDispatch = () => {
     if (hasPersistentDispatch || dispatchPass === '10-4') {
       localStorage.setItem(STORAGE_KEY_DISPATCH_AUTH, '10-4');
+      localStorage.setItem(STORAGE_KEY_SESSION_TYPE, 'DISPATCH');
       setSession({ role: 'DISPATCH' });
     } else {
       alert("Unauthorized. Correct Dispatch code required (10-4)");
@@ -124,6 +132,7 @@ const App: React.FC = () => {
     const callsign = data.callsign.toUpperCase();
     setSession({ role: 'UNIT', username: data.roblox, callsign, unitType: data.type });
     localStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(data));
+    localStorage.setItem(STORAGE_KEY_SESSION_TYPE, 'UNIT');
 
     const newUnit: Unit = {
       id: callsign,
@@ -144,6 +153,19 @@ const App: React.FC = () => {
 
   const handleQuickJoin = () => {
     if (savedProfile) performJoin(savedProfile);
+  };
+
+  const handleManualRefresh = () => {
+    setIsRefreshing(true);
+    // Visual feedback before reload
+    setTimeout(() => {
+      window.location.reload();
+    }, 800);
+  };
+
+  const handleSignOut = () => {
+    localStorage.removeItem(STORAGE_KEY_SESSION_TYPE);
+    setSession(null);
   };
 
   const updateUnitStatus = (unitId: string, status: UnitStatus) => {
@@ -424,11 +446,18 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2 md:gap-4">
+          <button 
+            title="Tactical Sync"
+            onClick={handleManualRefresh} 
+            className={`p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 text-slate-500 transition-all ${isRefreshing ? 'animate-spin text-blue-500' : ''}`}
+          >
+             <Icons.Refresh />
+          </button>
           <button onClick={() => setIsMobileMode(!isMobileMode)} className="p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 text-slate-500 transition-all">
              {isMobileMode ? <Icons.Monitor /> : <Icons.Smartphone />}
           </button>
           {session.role === 'DISPATCH' && <button onClick={() => setIsCreatingCall(true)} className="bg-blue-600 hover:bg-blue-500 px-4 md:px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg">New Broadcast</button>}
-          <button onClick={() => setSession(null)} className="text-[10px] font-black uppercase text-slate-600 hover:text-red-500 px-2 transition-colors">Sign Out</button>
+          <button onClick={handleSignOut} className="text-[10px] font-black uppercase text-slate-600 hover:text-red-500 px-2 transition-colors">Sign Out</button>
         </div>
       </header>
 
@@ -468,7 +497,7 @@ const App: React.FC = () => {
           <div className="hidden sm:flex items-center gap-3 text-slate-800 italic">FREQU_ID: {roomId.toUpperCase()}</div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="text-slate-800 font-black hidden xs:block">NEXUS v5.9.3 // PRODUCTION_AUTO_SYNC</div>
+          <div className="text-slate-800 font-black hidden xs:block">NEXUS v5.9.4 // PRODUCTION_AUTO_SYNC</div>
         </div>
       </footer>
     </div>
