@@ -37,15 +37,17 @@ const App: React.FC = () => {
   const [isCreatingCall, setIsCreatingCall] = useState(false);
   const [logInput, setLogInput] = useState('');
   const [isAIAssisting, setIsAIAssisting] = useState(false);
-  const [isMobileMode, setIsMobileMode] = useState(false);
+  const [isMobileMode, setIsMobileMode] = useState(window.innerWidth < 1024);
   const [mobileTab, setMobileTab] = useState<'UNITS' | 'INCIDENTS' | 'ACTIVE'>('INCIDENTS');
 
   const [newCallType, setNewCallType] = useState(CALL_TYPES[0]);
   const [newLocation, setNewLocation] = useState('');
   const [newPriority, setNewPriority] = useState<Priority>(Priority.MEDIUM);
 
-  const units = useMemo(() => Object.values(unitsMap), [unitsMap]);
-  const incidents = useMemo(() => Object.values(incidentsMap).filter(i => i && i.status === 'ACTIVE'), [incidentsMap]);
+  // Fix: Explicitly cast Object.values to Unit[] to avoid 'unknown' type errors
+  const units = useMemo(() => (Object.values(unitsMap) as Unit[]).sort((a,b) => a.id.localeCompare(b.id)), [unitsMap]);
+  // Fix: Explicitly cast Object.values to Incident[] to avoid 'unknown' type errors
+  const incidents = useMemo(() => (Object.values(incidentsMap) as Incident[]).filter(i => i && i.status === 'ACTIVE'), [incidentsMap]);
   const activeIncident = useMemo(() => incidentsMap[activeIncidentId || ''], [incidentsMap, activeIncidentId]);
 
   useEffect(() => {
@@ -53,7 +55,10 @@ const App: React.FC = () => {
     if (profile) setSavedProfile(JSON.parse(profile));
     const dispatchAuth = localStorage.getItem(STORAGE_KEY_DISPATCH_AUTH);
     if (dispatchAuth === '10-4') setHasPersistentDispatch(true);
-    if (window.innerWidth < 1024) setIsMobileMode(true);
+    
+    const handleResize = () => setIsMobileMode(window.innerWidth < 1024);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   // Granular Real-time Sync
@@ -166,7 +171,7 @@ const App: React.FC = () => {
     const currentIncident = incidentsMap[activeIncidentId];
     if (currentIncident) {
       let logs: IncidentLog[] = [];
-      try { logs = JSON.parse(currentIncident.logs); } catch(e) {}
+      try { logs = JSON.parse(currentIncident.logs); } catch(e) { logs = []; }
       
       const newLog: IncidentLog = {
         id: Date.now().toString(),
@@ -289,7 +294,7 @@ const App: React.FC = () => {
                   <div className="flex-1 overflow-y-auto p-10 space-y-6 font-mono text-sm custom-scrollbar">
                     {(() => {
                       let logs: IncidentLog[] = [];
-                      try { logs = JSON.parse(activeIncident.logs); } catch(e) {}
+                      try { logs = JSON.parse(activeIncident.logs); } catch(e) { logs = []; }
                       return logs.map((log, idx) => (
                         <div key={idx} className="flex gap-8 group"><span className="text-slate-800 font-black text-[10px] mt-1 shrink-0">[{log.timestamp}]</span><div className="flex-1"><span className={`font-black mr-4 uppercase tracking-widest ${log.sender === 'DISPATCH' ? 'text-blue-500' : 'text-emerald-500'}`}>{log.sender}:</span><span className="text-slate-400 group-hover:text-slate-200 transition-colors">{log.message}</span></div></div>
                       ));
@@ -312,6 +317,77 @@ const App: React.FC = () => {
     </div>
   );
 
+  const MobileUI = () => (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+        {mobileTab === 'UNITS' && (
+          <div className="space-y-3">
+            <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 px-2">Personnel Status</h2>
+            {units.map(unit => (
+              <div key={unit.id} className={`p-4 rounded-2xl border ${unit.name === session.callsign ? 'bg-emerald-500/5 border-emerald-500/40 shadow-lg' : 'bg-slate-900/40 border-slate-800'}`}>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="font-mono font-black text-sm">{unit.name}</span>
+                  <div className={`text-[9px] px-2 py-0.5 rounded-lg border font-black ${STATUS_COLORS[unit.status]}`}>{unit.status.replace(/_/g, ' ')}</div>
+                </div>
+                {(session.role === 'DISPATCH' || unit.name === session.callsign) && (
+                  <div className="grid grid-cols-5 gap-1">
+                    {Object.values(UnitStatus).map(s => <button key={s} onClick={() => updateUnitStatus(unit.id, s)} className={`text-[10px] py-3 rounded-lg border font-black ${unit.status === s ? 'bg-slate-800 border-slate-600 text-white' : 'bg-slate-950/40 border-slate-800 text-slate-700'}`}>{s.charAt(0)}</button>)}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {mobileTab === 'INCIDENTS' && (
+          <div className="space-y-3">
+            <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 px-2">Active Queue</h2>
+            {incidents.map(incident => (
+              <div key={incident.id} onClick={() => { setActiveIncidentId(incident.id); setMobileTab('ACTIVE'); }} className={`p-5 rounded-2xl border ${activeIncidentId === incident.id ? 'bg-blue-900/5 border-blue-500' : 'bg-slate-900/40 border-slate-800'}`}>
+                <div className="flex justify-between mb-2"><span className="text-[10px] font-mono font-bold text-slate-600">{incident.id}</span><span className={`text-[10px] uppercase font-black ${PRIORITY_COLORS[incident.priority]}`}>{incident.priority}</span></div>
+                <div className="font-black text-sm uppercase truncate">{incident.callType}</div>
+                <div className="text-[10px] text-slate-500 italic mt-1">{incident.location}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {mobileTab === 'ACTIVE' && (
+          <div className="h-full flex flex-col">
+            {activeIncident ? (
+              <div className="flex-1 flex flex-col space-y-4">
+                <div className="p-4 bg-slate-900/40 rounded-2xl border border-slate-800">
+                  <h3 className="text-xl font-black uppercase mb-1">{activeIncident.callType}</h3>
+                  <div className="text-[10px] text-slate-500 italic uppercase">Loc: {activeIncident.location}</div>
+                  {session.role === 'DISPATCH' && <button onClick={handleCloseIncident} className="w-full mt-4 bg-red-600/10 text-red-500 py-3 rounded-xl text-[10px] font-black uppercase border border-red-500/20">Purge</button>}
+                </div>
+                <div className="flex-1 bg-slate-950/40 rounded-2xl border border-slate-800 flex flex-col overflow-hidden">
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4 font-mono text-xs">
+                    {(() => {
+                      let logs: IncidentLog[] = [];
+                      try { logs = JSON.parse(activeIncident.logs); } catch(e) { logs = []; }
+                      return logs.map((log, idx) => (
+                        <div key={idx} className="flex gap-3"><span className="text-slate-800 font-black">[{log.timestamp}]</span><div><span className={`font-black uppercase mr-2 ${log.sender === 'DISPATCH' ? 'text-blue-500' : 'text-emerald-500'}`}>{log.sender}:</span><span>{log.message}</span></div></div>
+                      ));
+                    })()}
+                  </div>
+                  <div className="p-4 bg-slate-950/60 border-t border-slate-800 flex gap-2">
+                    <input type="text" value={logInput} onChange={(e) => setLogInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddLog()} placeholder="Add log..." className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs font-bold outline-none text-white shadow-inner" />
+                    <button onClick={handleAddLog} className="bg-blue-600 p-3 rounded-xl shadow-lg"><Icons.Send /></button>
+                  </div>
+                </div>
+              </div>
+            ) : <div className="flex-1 flex items-center justify-center opacity-10"><Icons.Police /></div>}
+          </div>
+        )}
+      </div>
+      <nav className="h-16 bg-slate-950 border-t border-slate-900 grid grid-cols-3 shrink-0">
+        <button onClick={() => setMobileTab('UNITS')} className={`flex flex-col items-center justify-center gap-1 ${mobileTab === 'UNITS' ? 'text-blue-500' : 'text-slate-700'}`}><Icons.Police /><span className="text-[8px] font-black uppercase">Units</span></button>
+        {/* Fix: Icons.AlertCircle is now available */}
+        <button onClick={() => setMobileTab('INCIDENTS')} className={`flex flex-col items-center justify-center gap-1 ${mobileTab === 'INCIDENTS' ? 'text-blue-500' : 'text-slate-700'}`}><Icons.AlertCircle /><span className="text-[8px] font-black uppercase">Calls</span></button>
+        <button onClick={() => setMobileTab('ACTIVE')} className={`flex flex-col items-center justify-center gap-1 ${mobileTab === 'ACTIVE' ? 'text-blue-500' : 'text-slate-700'}`}><Icons.Plus /><span className="text-[8px] font-black uppercase">Active</span></button>
+      </nav>
+    </div>
+  );
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-[#020617] text-slate-100 font-sans selection:bg-blue-500/30">
       <header className={`h-16 shrink-0 ${session.role === 'DISPATCH' ? 'bg-slate-900/50 border-blue-500/20' : 'bg-slate-900/50 border-emerald-500/20'} border-b flex items-center justify-between px-4 md:px-8 backdrop-blur-xl z-20`}>
@@ -331,7 +407,9 @@ const App: React.FC = () => {
           <button onClick={() => setSession(null)} className="text-[10px] font-black uppercase text-slate-600 hover:text-red-500 px-2 transition-colors">Sign Out</button>
         </div>
       </header>
-      {isMobileMode ? <DesktopUI /> : <DesktopUI />} {/* Consolidated into DesktopUI with responsive flex logic */}
+      
+      {isMobileMode ? <MobileUI /> : <DesktopUI />}
+      
       {isCreatingCall && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-4 md:p-8">
           <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-8 md:p-12 w-full max-w-2xl space-y-8 animate-in zoom-in-95 shadow-3xl max-h-[90vh] overflow-y-auto custom-scrollbar">
@@ -356,7 +434,7 @@ const App: React.FC = () => {
           <div className="hidden sm:flex items-center gap-3 text-slate-800 italic">FREQU_ID: {roomId.toUpperCase()}</div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="text-slate-800 font-black hidden xs:block">NEXUS v5.9.1 // STABLE_UPLINK</div>
+          <div className="text-slate-800 font-black hidden xs:block">NEXUS v5.9.2 // STABLE_UPLINK</div>
         </div>
       </footer>
     </div>
