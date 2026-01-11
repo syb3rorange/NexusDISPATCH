@@ -88,8 +88,8 @@ const PRIORITY_COLORS: Record<string, string> = {
   EMERGENCY: 'text-red-500 font-bold animate-pulse',
 };
 
-const STORAGE_KEY_PROFILE = 'nexus_cad_profile_v3';
-const STORAGE_KEY_DISPATCH_AUTH = 'nexus_cad_dispatch_v3';
+const STORAGE_KEY_PROFILE = 'nexus_cad_profile_v4';
+const STORAGE_KEY_DISPATCH_AUTH = 'nexus_cad_dispatch_v4';
 
 const Icons = {
   Police: () => (
@@ -99,13 +99,13 @@ const Icons = {
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
   ),
   EMS: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 2a2 2 0 0 0-2 2v5H4a2 2 0 0 0-2 2v2c0 1.1.9 2 2 2h5v5c0 1.1.9 2 2 2h2a2 2 0 0 0 2-2v-5h5a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2h-5V4a2 2-2 0 0 0-2-2h-2z"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 2a2 2 0 0 0-2 2v5H4a2 2 0 0 0-2 2v2c0 1.1.9 2 2 2h5v5c0 1.1.9 2 2 2h2a2 2 0 0 0 2-2v-5h5a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2h-5V4a2 2 0 0 0-2-2h-2z"/></svg>
   ),
   Send: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
   ),
   Sparkles: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>
   ),
   Refresh: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
@@ -166,13 +166,13 @@ const App: React.FC = () => {
   const [onboardingData, setOnboardingData] = useState({ roblox: '', callsign: '', type: UnitType.POLICE });
   const [savedProfile, setSavedProfile] = useState<{roblox: string, callsign: string, type: UnitType} | null>(null);
 
-  const [units, setUnits] = useState<Unit[]>([]);
-  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [unitsMap, setUnitsMap] = useState<Record<string, Unit>>({});
+  const [incidentsMap, setIncidentsMap] = useState<Record<string, Incident>>({});
   const [activeIncidentId, setActiveIncidentId] = useState<string | null>(null);
 
-  // We use refs to avoid stale closures in sync functions
-  const unitsRef = useRef<Unit[]>([]);
-  const incidentsRef = useRef<Incident[]>([]);
+  const units = useMemo(() => Object.values(unitsMap), [unitsMap]);
+  const incidents = useMemo(() => Object.values(incidentsMap).filter(i => i !== null), [incidentsMap]);
+  const activeIncident = useMemo(() => incidents.find(i => i.id === activeIncidentId), [incidents, activeIncidentId]);
 
   const [isCreatingCall, setIsCreatingCall] = useState(false);
   const [logInput, setLogInput] = useState('');
@@ -185,16 +185,6 @@ const App: React.FC = () => {
   const [newLocation, setNewLocation] = useState('');
   const [newPriority, setNewPriority] = useState<Priority>(Priority.MEDIUM);
 
-  const activeIncident = useMemo(() => incidents.find(i => i.id === activeIncidentId), [incidents, activeIncidentId]);
-
-  // Keep refs in sync with state
-  useEffect(() => {
-    unitsRef.current = units;
-  }, [units]);
-  useEffect(() => {
-    incidentsRef.current = incidents;
-  }, [incidents]);
-
   // Persistence & Mobile Detection
   useEffect(() => {
     const profile = localStorage.getItem(STORAGE_KEY_PROFILE);
@@ -204,40 +194,45 @@ const App: React.FC = () => {
     if (window.innerWidth < 1024) setIsMobileMode(true);
   }, []);
 
-  const broadcastState = useCallback((newUnits: Unit[], newIncidents: Incident[]) => {
-    gun.get('nexus_cad_v4').get(roomId).put(JSON.stringify({ 
-      units: newUnits, 
-      incidents: newIncidents,
-      updatedAt: Date.now() 
-    }));
+  // Listen for Real-time Updates (The Granular Way)
+  useEffect(() => {
+    const root = gun.get('nexus_v5').get(roomId);
+
+    // Sync Units
+    root.get('units').map().on((data, id) => {
+      setUnitsMap(prev => {
+        if (!data) {
+          const newState = { ...prev };
+          delete newState[id];
+          return newState;
+        }
+        return { ...prev, [id]: data };
+      });
+    });
+
+    // Sync Incidents
+    root.get('incidents').map().on((data, id) => {
+      setIncidentsMap(prev => {
+        if (!data) {
+          const newState = { ...prev };
+          delete newState[id];
+          return newState;
+        }
+        return { ...prev, [id]: data };
+      });
+    });
+
+    return () => {
+      root.get('units').off();
+      root.get('incidents').off();
+    };
   }, [roomId]);
 
   const handleManualRefresh = () => {
     setIsSyncing(true);
-    gun.get('nexus_cad_v4').get(roomId).once((data) => {
-        if (data) {
-            try {
-                const parsed = JSON.parse(data);
-                if (parsed.units) setUnits(parsed.units);
-                if (parsed.incidents) setIncidents(parsed.incidents);
-            } catch (e) {}
-        }
-        setTimeout(() => setIsSyncing(false), 800);
-    });
+    // Force simple re-fetch by triggering a dummy state change or just relying on Gun's background sync
+    setTimeout(() => setIsSyncing(false), 800);
   };
-
-  useEffect(() => {
-    const room = gun.get('nexus_cad_v4').get(roomId);
-    room.on((data) => {
-      if (!data) return;
-      try {
-        const parsed = JSON.parse(data);
-        if (parsed.units) setUnits(parsed.units);
-        if (parsed.incidents) setIncidents(parsed.incidents);
-      } catch (e) {}
-    });
-    return () => { room.off(); };
-  }, [roomId]);
 
   const handleLoginDispatch = () => {
     if (hasPersistentDispatch || dispatchPass === '10-4') {
@@ -253,8 +248,9 @@ const App: React.FC = () => {
     setSession({ role: 'UNIT', username: data.roblox, callsign, unitType: data.type });
     localStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(data));
 
+    const unitId = `UNIT-${Math.random().toString(36).substr(2, 5)}`;
     const newUnit: Unit = {
-      id: Math.random().toString(36).substr(2, 5),
+      id: unitId,
       name: callsign,
       type: data.type,
       status: UnitStatus.AVAILABLE,
@@ -262,9 +258,7 @@ const App: React.FC = () => {
       lastUpdated: new Date().toISOString(),
     };
     
-    const updatedUnits = [...unitsRef.current.filter(u => u.name !== callsign), newUnit];
-    setUnits(updatedUnits);
-    broadcastState(updatedUnits, incidentsRef.current);
+    gun.get('nexus_v5').get(roomId).get('units').get(unitId).put(newUnit);
   };
 
   const handleJoinUnit = () => {
@@ -277,9 +271,8 @@ const App: React.FC = () => {
   };
 
   const updateUnitStatus = (unitId: string, status: UnitStatus) => {
-    const nextUnits = unitsRef.current.map(u => u.id === unitId ? { ...u, status, lastUpdated: new Date().toISOString() } : u);
-    setUnits(nextUnits);
-    broadcastState(nextUnits, incidentsRef.current);
+    gun.get('nexus_v5').get(roomId).get('units').get(unitId).get('status').put(status);
+    gun.get('nexus_v5').get(roomId).get('units').get(unitId).get('lastUpdated').put(new Date().toISOString());
   };
 
   const createIncident = async () => {
@@ -296,11 +289,9 @@ const App: React.FC = () => {
       startTime: new Date().toISOString(),
     };
     
-    const nextIncidents = [newIncident, ...incidentsRef.current];
-    setIncidents(nextIncidents);
+    gun.get('nexus_v5').get(roomId).get('incidents').get(id).put(newIncident);
     setActiveIncidentId(id);
     setIsCreatingCall(false);
-    broadcastState(unitsRef.current, nextIncidents);
     if (isMobileMode) setMobileTab('ACTIVE');
   };
 
@@ -317,18 +308,20 @@ const App: React.FC = () => {
       sender: session?.role === 'DISPATCH' ? 'DISPATCH' : (session?.callsign || 'UNIT'),
       message: finalMessage
     };
-    const nextIncidents = incidentsRef.current.map(inc => inc.id === activeIncidentId ? { ...inc, logs: [...inc.logs, newLog] } : inc);
-    setIncidents(nextIncidents);
+    
+    const currentIncident = incidentsMap[activeIncidentId];
+    if (currentIncident) {
+      const updatedLogs = [...currentIncident.logs, newLog];
+      gun.get('nexus_v5').get(roomId).get('incidents').get(activeIncidentId).get('logs').put(JSON.stringify(updatedLogs));
+    }
     setLogInput('');
-    broadcastState(unitsRef.current, nextIncidents);
   };
 
   const handleCloseIncident = () => {
     if (!activeIncidentId || session?.role !== 'DISPATCH') return;
-    const nextIncidents = incidentsRef.current.filter(i => i.id !== activeIncidentId);
-    setIncidents(nextIncidents);
+    // Granular delete in Gun
+    gun.get('nexus_v5').get(roomId).get('incidents').get(activeIncidentId).put(null);
     setActiveIncidentId(null);
-    broadcastState(unitsRef.current, nextIncidents);
     if (isMobileMode) setMobileTab('INCIDENTS');
   };
 
@@ -339,56 +332,56 @@ const App: React.FC = () => {
           <div className="grid grid-cols-12 h-full w-full">{Array.from({ length: 144 }).map((_, i) => <div key={i} className="border border-slate-800/20" />)}</div>
         </div>
         
-        <div className="z-10 w-full max-w-5xl flex flex-col items-center max-h-full overflow-y-auto py-10 custom-scrollbar">
-          <div className="bg-blue-600 p-5 rounded-[2rem] shadow-2xl mb-8 border border-blue-400/30"><Icons.Police /></div>
-          <h1 className="text-4xl md:text-6xl font-black tracking-widest mb-4 uppercase text-center">NEXUS<span className="text-blue-500">CAD</span></h1>
-          <div className="flex gap-3 mb-12 text-[10px] font-mono uppercase text-slate-600">Secure Uplink: <span className="text-blue-400 font-bold">{roomId}</span></div>
+        <div className="z-10 w-full max-w-5xl flex flex-col items-center max-h-full overflow-y-auto py-10 px-4 custom-scrollbar">
+          <div className="bg-blue-600 p-5 rounded-[2.5rem] shadow-2xl mb-8 border border-blue-400/30 shrink-0"><Icons.Police /></div>
+          <h1 className="text-4xl md:text-6xl font-black tracking-widest mb-4 uppercase text-center shrink-0">NEXUS<span className="text-blue-500">CAD</span></h1>
+          <div className="flex gap-3 mb-12 text-[10px] font-mono uppercase text-slate-600 shrink-0">Grid Frequency: <span className="text-blue-400 font-bold">{roomId}</span></div>
           
-          <div className="grid lg:grid-cols-3 gap-6 w-full px-2">
-            {/* Dispatch Portal */}
-            <div className="bg-slate-900/40 border border-slate-800 p-6 md:p-10 rounded-[2.5rem] backdrop-blur-xl flex flex-col hover:border-blue-500/50 transition-all shadow-xl">
+          <div className="grid lg:grid-cols-3 gap-6 w-full max-w-6xl">
+            {/* Dispatch Login */}
+            <div className="bg-slate-900/40 border border-slate-800 p-8 md:p-10 rounded-[2.5rem] backdrop-blur-xl flex flex-col hover:border-blue-500/50 transition-all shadow-xl">
               <h2 className="text-xl font-black mb-6 uppercase flex items-center gap-3"><Icons.Send /> Dispatch</h2>
               {hasPersistentDispatch ? (
-                  <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-2xl flex flex-col items-center justify-center">
+                  <div className="mb-6 p-5 bg-blue-500/10 border border-blue-500/30 rounded-2xl flex flex-col items-center justify-center">
                     <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">Authenticated</span>
-                    <span className="text-xs text-slate-500 font-mono italic">Persistent Mode Active</span>
+                    <span className="text-xs text-slate-500 font-mono italic text-center leading-tight">Session token active. Click below to enter.</span>
                   </div>
               ) : (
-                <input type="password" placeholder="Passcode (10-4)" value={dispatchPass} onChange={(e) => setDispatchPass(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLoginDispatch()} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 mb-4 font-bold outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                <input type="password" placeholder="Passcode (10-4)" value={dispatchPass} onChange={(e) => setDispatchPass(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLoginDispatch()} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 mb-4 font-bold outline-none focus:ring-2 focus:ring-blue-500 text-sm shadow-inner" />
               )}
-              <button onClick={handleLoginDispatch} className="w-full bg-blue-600 hover:bg-blue-500 p-5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-blue-900/40 mt-auto">Establish Comms</button>
+              <button onClick={handleLoginDispatch} className="w-full bg-blue-600 hover:bg-blue-500 p-5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-blue-900/40 mt-auto flex items-center justify-center gap-3 active:scale-95">Establish Login</button>
             </div>
 
-            {/* Field Unit Login */}
-            <div className="bg-slate-900/40 border border-slate-800 p-6 md:p-10 rounded-[2.5rem] backdrop-blur-xl flex flex-col hover:border-emerald-500/50 transition-all shadow-xl">
+            {/* Field Join */}
+            <div className="bg-slate-900/40 border border-slate-800 p-8 md:p-10 rounded-[2.5rem] backdrop-blur-xl flex flex-col hover:border-emerald-500/50 transition-all shadow-xl">
               <h2 className="text-xl font-black mb-6 uppercase flex items-center gap-3"><Icons.Police /> Field Join</h2>
               <div className="space-y-4 mb-6">
-                <input type="text" placeholder="Roblox Name" value={onboardingData.roblox} onChange={(e) => setOnboardingData(p => ({...p, roblox: e.target.value}))} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 font-bold outline-none focus:ring-2 focus:ring-emerald-500 text-sm shadow-inner" />
+                <input type="text" placeholder="Roblox ID" value={onboardingData.roblox} onChange={(e) => setOnboardingData(p => ({...p, roblox: e.target.value}))} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 font-bold outline-none focus:ring-2 focus:ring-emerald-500 text-sm shadow-inner" />
                 <input type="text" placeholder="Callsign" value={onboardingData.callsign} onChange={(e) => setOnboardingData(p => ({...p, callsign: e.target.value}))} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 uppercase font-mono outline-none focus:ring-2 focus:ring-emerald-500 text-sm shadow-inner" />
                 <div className="grid grid-cols-3 gap-2">
                     {[UnitType.POLICE, UnitType.FIRE, UnitType.EMS].map(t => (
-                        <button key={t} onClick={() => setOnboardingData(p => ({...p, type: t}))} className={`py-3 rounded-xl border text-[9px] font-black tracking-tighter transition-all ${onboardingData.type === t ? 'bg-emerald-600 border-emerald-400 text-white shadow-md' : 'bg-slate-950 border-slate-800 text-slate-600'}`}>{t}</button>
+                        <button key={t} onClick={() => setOnboardingData(p => ({...p, type: t}))} className={`py-3 rounded-xl border text-[9px] font-black tracking-tighter transition-all ${onboardingData.type === t ? 'bg-emerald-600 border-emerald-400 text-white shadow-md' : 'bg-slate-950 border-slate-800 text-slate-600 hover:border-slate-700'}`}>{t}</button>
                     ))}
                 </div>
               </div>
-              <button onClick={handleJoinUnit} className="w-full bg-emerald-600 hover:bg-emerald-500 p-5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-emerald-900/40">Initialize Sync</button>
+              <button onClick={handleJoinUnit} className="w-full bg-emerald-600 hover:bg-emerald-500 p-5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-emerald-900/40 active:scale-95">Initialize Node</button>
             </div>
 
-            {/* Saved Profile Login */}
-            <div className={`bg-slate-900/40 border-2 ${savedProfile ? 'border-blue-500/50 shadow-blue-500/20' : 'border-slate-800/20'} p-6 md:p-10 rounded-[2.5rem] backdrop-blur-xl flex flex-col transition-all relative overflow-hidden group shadow-xl min-h-[300px]`}>
-               {!savedProfile && <div className="absolute inset-0 bg-slate-950/40 backdrop-grayscale flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-slate-800 italic">No Cached Unit</div>}
-               <h2 className="text-xl font-black mb-6 uppercase flex items-center gap-3 text-blue-400">Quick Login</h2>
+            {/* Quick Login */}
+            <div className={`bg-slate-900/40 border-2 ${savedProfile ? 'border-blue-500/50 shadow-blue-500/20' : 'border-slate-800/20'} p-8 md:p-10 rounded-[2.5rem] backdrop-blur-xl flex flex-col transition-all relative overflow-hidden shadow-xl min-h-[300px]`}>
+               {!savedProfile && <div className="absolute inset-0 bg-slate-950/40 backdrop-grayscale flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-slate-800 italic">No Cached Session</div>}
+               <h2 className="text-xl font-black mb-6 uppercase flex items-center gap-3 text-blue-400">Quick Join</h2>
                {savedProfile && (
                  <div className="flex flex-col h-full animate-in zoom-in-95">
-                    <div className="bg-slate-950/60 p-6 rounded-2xl border border-slate-800 mb-6 group-hover:border-blue-500/50 transition-colors shadow-inner">
-                        <div className="text-[10px] font-black text-slate-700 uppercase mb-1 tracking-widest">Active Profile</div>
+                    <div className="bg-slate-950/60 p-6 rounded-2xl border border-slate-800 mb-6 shadow-inner">
+                        <div className="text-[10px] font-black text-slate-700 uppercase mb-1 tracking-widest">Active ID</div>
                         <div className="text-3xl font-black tracking-tight text-white mb-1">{savedProfile.callsign}</div>
                         <div className="text-xs font-mono text-slate-500 uppercase">{savedProfile.type} // {savedProfile.roblox}</div>
                     </div>
                     <button onClick={handleQuickJoin} className="w-full bg-blue-600 hover:bg-blue-500 p-5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-xl shadow-blue-900/40 mt-auto flex items-center justify-center gap-3 active:scale-95">
-                        <Icons.Refresh /> Resume Session
+                        <Icons.Refresh /> Resume Comms
                     </button>
-                    <button onClick={() => {localStorage.removeItem(STORAGE_KEY_PROFILE); setSavedProfile(null);}} className="text-[9px] text-slate-700 mt-4 font-black uppercase hover:text-red-500 transition-colors text-center">Clear Local Profile</button>
+                    <button onClick={() => {localStorage.removeItem(STORAGE_KEY_PROFILE); setSavedProfile(null);}} className="text-[9px] text-slate-700 mt-4 font-black uppercase hover:text-red-500 transition-colors text-center">Wipe Cache</button>
                  </div>
                )}
             </div>
@@ -409,14 +402,17 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2 md:gap-4">
-          <button onClick={handleManualRefresh} className={`p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 transition-all ${isSyncing ? 'text-blue-400 bg-blue-500/10' : 'text-slate-500'}`} title="Force Sync Network">
+          <button onClick={handleManualRefresh} className={`p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 transition-all ${isSyncing ? 'text-blue-400 bg-blue-500/10' : 'text-slate-500'}`} title="Sync Data">
             <div className={isSyncing ? 'animate-spin' : ''}><Icons.Refresh /></div>
           </button>
-          <button onClick={() => setIsMobileMode(!isMobileMode)} className="p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 text-slate-500 transition-all" title="Toggle Layout View">
+          <button onClick={() => setIsMobileMode(!isMobileMode)} className="p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 text-slate-500 transition-all" title="Toggle Viewport">
              {isMobileMode ? <Icons.Monitor /> : <Icons.Smartphone />}
           </button>
-          {session.role === 'DISPATCH' && <button onClick={() => setIsCreatingCall(true)} className="bg-blue-600 hover:bg-blue-500 px-4 md:px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 border border-white/10 shadow-lg shadow-blue-500/20">New Call</button>}
-          <button onClick={() => setSession(null)} className="text-[10px] font-black uppercase text-slate-600 hover:text-red-500 px-2 transition-colors">Logout</button>
+          {session.role === 'DISPATCH' && <button onClick={() => setIsCreatingCall(true)} className="bg-blue-600 hover:bg-blue-500 px-4 md:px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 border border-white/10 shadow-lg shadow-blue-500/20">New Broadcast</button>}
+          <button onClick={() => {
+            if (session.role === 'DISPATCH') localStorage.removeItem(STORAGE_KEY_DISPATCH_AUTH);
+            setSession(null);
+          }} className="text-[10px] font-black uppercase text-slate-600 hover:text-red-500 px-2 transition-colors">Sign Out</button>
         </div>
       </header>
   );
@@ -424,10 +420,10 @@ const App: React.FC = () => {
   const DesktopUI = () => (
     <div className="flex-1 flex overflow-hidden">
         <aside className="w-80 border-r border-slate-800/60 bg-slate-950/40 flex flex-col shrink-0">
-          <div className="p-6 border-b border-slate-800 flex items-center justify-between"><h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Personnel Status</h2></div>
+          <div className="p-6 border-b border-slate-800 flex items-center justify-between"><h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Field Personnel</h2></div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
             {units.map(unit => (
-              <div key={unit.id} className={`p-5 rounded-3xl border transition-all ${unit.name === session.callsign ? 'bg-emerald-500/5 border-emerald-500/40 shadow-xl' : 'bg-slate-900/40 border-slate-800/50'}`}>
+              <div key={unit.id} className={`p-5 rounded-3xl border transition-all ${unit.name === session.callsign ? 'bg-emerald-500/5 border-emerald-500/40 shadow-xl' : 'bg-slate-900/40 border-slate-800/50 hover:bg-slate-900/60'}`}>
                 <div className="flex justify-between mb-3 items-center">
                   <span className="font-mono font-black text-sm tracking-tight">{unit.name}</span>
                   <div className={`text-[9px] px-2 py-0.5 rounded-lg border font-black ${STATUS_COLORS[unit.status]}`}>{unit.status.replace(/_/g, ' ')}</div>
@@ -437,49 +433,56 @@ const App: React.FC = () => {
                     {Object.values(UnitStatus).map(s => <button key={s} onClick={() => updateUnitStatus(unit.id, s)} className={`text-[10px] py-2 rounded-lg border font-black transition-colors ${unit.status === s ? 'bg-slate-800 border-slate-600 text-white shadow-inner' : 'bg-slate-950/40 border-slate-800 text-slate-700 hover:text-slate-500'}`}>{s.charAt(0)}</button>)}
                   </div>
                 )}
-                <div className="mt-3 text-[9px] text-slate-700 font-mono uppercase truncate">User: {unit.robloxUser}</div>
+                <div className="mt-3 text-[9px] text-slate-700 font-mono uppercase truncate">OP: {unit.robloxUser}</div>
               </div>
             ))}
-            {units.length === 0 && <div className="text-center py-20 text-slate-800 font-black text-[10px] uppercase tracking-widest">No Active Personnel</div>}
+            {units.length === 0 && <div className="text-center py-20 text-slate-800 font-black text-[10px] uppercase tracking-widest italic opacity-40">Zero Personnel Active</div>}
           </div>
         </aside>
         
         <section className="flex-1 flex flex-col bg-[#020617]">
           <div className="h-44 shrink-0 border-b border-slate-800/60 flex p-6 gap-6 overflow-x-auto items-center custom-scrollbar">
-            {incidents.filter(i => i.status === 'ACTIVE').map(incident => (
-              <div key={incident.id} onClick={() => setActiveIncidentId(incident.id)} className={`w-80 shrink-0 p-6 rounded-[2rem] border cursor-pointer transition-all relative ${activeIncidentId === incident.id ? 'bg-blue-900/5 border-blue-500 shadow-2xl scale-[1.02]' : 'bg-slate-900/30 border-slate-800/50 hover:bg-slate-900/40'}`}>
+            {incidents.map(incident => (
+              <div key={incident.id} onClick={() => setActiveIncidentId(incident.id)} className={`w-80 shrink-0 p-6 rounded-[2.5rem] border cursor-pointer transition-all relative ${activeIncidentId === incident.id ? 'bg-blue-900/5 border-blue-500 shadow-2xl scale-[1.02]' : 'bg-slate-900/30 border-slate-800/50 hover:bg-slate-900/40 hover:border-slate-700'}`}>
                 <div className="flex justify-between items-start mb-4"><span className="text-[10px] font-mono font-bold text-slate-600">{incident.id}</span><span className={`text-[10px] uppercase font-black tracking-widest ${PRIORITY_COLORS[incident.priority]}`}>{incident.priority}</span></div>
                 <div className="font-black text-sm truncate uppercase tracking-wide">{incident.callType}</div>
-                <div className="text-[11px] text-slate-500 truncate mb-5">LOC: {incident.location}</div>
+                <div className="text-[11px] text-slate-500 truncate mb-5 italic">LOC: {incident.location}</div>
               </div>
             ))}
-            {incidents.filter(i => i.status === 'ACTIVE').length === 0 && <div className="w-full text-center text-slate-800 font-black text-[11px] uppercase tracking-[0.4em] opacity-50 italic">Zero Active Broadcasts</div>}
+            {incidents.length === 0 && <div className="w-full text-center text-slate-800 font-black text-[11px] uppercase tracking-[0.4em] opacity-40 italic">Monitoring Network For Broadcasts...</div>}
           </div>
           
           {activeIncident ? (
             <div className="flex-1 flex flex-col p-8 overflow-hidden animate-in fade-in slide-in-from-bottom-2">
                <div className="flex justify-between items-start mb-10">
-                  <div><h2 className="text-5xl font-black text-white uppercase tracking-tighter mb-4 drop-shadow-2xl">{activeIncident.callType}</h2><div className="text-[11px] text-slate-500 uppercase tracking-[0.3em] font-black">Dispatch Location: {activeIncident.location}</div></div>
-                  {session.role === 'DISPATCH' && <button onClick={handleCloseIncident} className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-10 py-4 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all border border-red-500/20 active:scale-95 shadow-xl">Purge Call</button>}
+                  <div><h2 className="text-5xl font-black text-white uppercase tracking-tighter mb-4 drop-shadow-2xl">{activeIncident.callType}</h2><div className="text-[11px] text-slate-500 uppercase tracking-[0.3em] font-black italic">Target Location: {activeIncident.location}</div></div>
+                  {session.role === 'DISPATCH' && <button onClick={handleCloseIncident} className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-10 py-4 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all border border-red-500/20 active:scale-95 shadow-xl">Purge Broadcast</button>}
                </div>
-               <div className="flex-1 flex flex-col bg-slate-950/40 rounded-[3rem] border border-slate-800/40 overflow-hidden shadow-3xl">
+               <div className="flex-1 flex flex-col bg-slate-950/40 rounded-[3rem] border border-slate-800/40 overflow-hidden shadow-3xl backdrop-blur-xl">
                   <div className="flex-1 overflow-y-auto p-10 space-y-6 font-mono text-sm custom-scrollbar">
-                    {activeIncident.logs.map(log => (
-                      <div key={log.id} className="flex gap-8 group"><span className="text-slate-800 font-black text-[10px] mt-1 shrink-0">[{log.timestamp}]</span><div className="flex-1"><span className={`font-black mr-4 uppercase tracking-widest ${log.sender === 'DISPATCH' ? 'text-blue-500' : 'text-emerald-500'}`}>{log.sender}:</span><span className="text-slate-400 group-hover:text-slate-200 transition-colors">{log.message}</span></div></div>
-                    ))}
+                    {/* Log processing */}
+                    {(() => {
+                      let logs: IncidentLog[] = [];
+                      try {
+                         logs = typeof activeIncident.logs === 'string' ? JSON.parse(activeIncident.logs) : activeIncident.logs;
+                      } catch (e) {}
+                      return logs.map((log, idx) => (
+                        <div key={idx} className="flex gap-8 group"><span className="text-slate-800 font-black text-[10px] mt-1 shrink-0">[{log.timestamp}]</span><div className="flex-1"><span className={`font-black mr-4 uppercase tracking-widest ${log.sender === 'DISPATCH' ? 'text-blue-500' : 'text-emerald-500'}`}>{log.sender}:</span><span className="text-slate-400 group-hover:text-slate-200 transition-colors">{log.message}</span></div></div>
+                      ));
+                    })()}
                   </div>
                   <div className="p-10 bg-slate-950/60 border-t border-slate-800/40">
                     <div className="flex gap-5">
-                      <input type="text" value={logInput} onChange={(e) => setLogInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddLog()} placeholder="Situation update..." className="flex-1 bg-slate-950 border border-slate-800 rounded-[1.5rem] px-8 py-6 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder:text-slate-900 shadow-inner" />
+                      <input type="text" value={logInput} onChange={(e) => setLogInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddLog()} placeholder="Enter sitrep log..." className="flex-1 bg-slate-950 border border-slate-800 rounded-[1.5rem] px-8 py-6 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder:text-slate-900 shadow-inner transition-all" />
                       <button onClick={() => setIsAIAssisting(!isAIAssisting)} className={`p-6 rounded-[1.5rem] border transition-all ${isAIAssisting ? 'bg-blue-600 text-white border-blue-400 shadow-xl' : 'bg-slate-900 border-slate-800 text-slate-600 hover:text-white'}`}><Icons.Sparkles /></button>
                       <button onClick={handleAddLog} className="bg-blue-600 hover:bg-blue-500 p-6 rounded-[1.5rem] shadow-2xl transition-all active:scale-95 border border-white/10"><Icons.Send /></button>
                     </div>
                   </div>
                </div>
             </div>
-          ) : <div className="flex-1 flex flex-col items-center justify-center opacity-10">
-                <div className="w-32 h-32 mb-8 bg-slate-900 rounded-[3rem] flex items-center justify-center border border-slate-800"><Icons.Police /></div>
-                <div className="text-4xl font-black uppercase tracking-[0.5em]">Network Idle</div>
+          ) : <div className="flex-1 flex flex-col items-center justify-center opacity-10 grayscale transition-all">
+                <div className="w-32 h-32 mb-8 bg-slate-900 rounded-[3rem] flex items-center justify-center border border-slate-800 shadow-2xl"><Icons.Police /></div>
+                <div className="text-4xl font-black uppercase tracking-[0.5em] text-white">System Idle</div>
               </div>}
         </section>
     </div>
@@ -490,11 +493,11 @@ const App: React.FC = () => {
       <main className="flex-1 overflow-y-auto bg-[#020617] p-4 custom-scrollbar">
          {mobileTab === 'UNITS' && (
             <div className="space-y-4 animate-in fade-in">
-               <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-2 mb-4">Personnel Status</h2>
+               <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-2 mb-4">Field Units</h2>
                {units.map(unit => (
                 <div key={unit.id} className={`p-4 rounded-2xl border ${unit.name === session.callsign ? 'bg-emerald-500/5 border-emerald-500/40' : 'bg-slate-900/40 border-slate-800'}`}>
                     <div className="flex justify-between items-center mb-3">
-                        <span className="font-mono font-black text-sm">{unit.name}</span>
+                        <span className="font-mono font-black text-sm tracking-tight">{unit.name}</span>
                         <div className={`text-[9px] px-2 py-0.5 rounded-lg border font-black ${STATUS_COLORS[unit.status]}`}>{unit.status.replace(/_/g, ' ')}</div>
                     </div>
                     {(session.role === 'DISPATCH' || unit.name === session.callsign) && (
@@ -504,20 +507,20 @@ const App: React.FC = () => {
                     )}
                 </div>
                ))}
-               {units.length === 0 && <div className="text-center py-20 text-slate-800 text-[10px] font-black uppercase tracking-widest italic">No Field Assets</div>}
+               {units.length === 0 && <div className="text-center py-20 text-slate-800 text-[10px] font-black uppercase tracking-widest italic opacity-40">Zero Units Online</div>}
             </div>
          )}
          {mobileTab === 'INCIDENTS' && (
             <div className="space-y-4 animate-in fade-in">
                <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-2 mb-4">Broadcast Queue</h2>
-               {incidents.filter(i => i.status === 'ACTIVE').map(incident => (
+               {incidents.map(incident => (
                 <div key={incident.id} onClick={() => { setActiveIncidentId(incident.id); setMobileTab('ACTIVE'); }} className={`p-5 rounded-2xl border cursor-pointer ${activeIncidentId === incident.id ? 'bg-blue-900/5 border-blue-500 shadow-xl' : 'bg-slate-900/40 border-slate-800'}`}>
                     <div className="flex justify-between items-start mb-2"><span className="text-[10px] font-mono text-slate-600">{incident.id}</span><span className={`text-[10px] uppercase font-black ${PRIORITY_COLORS[incident.priority]}`}>{incident.priority}</span></div>
                     <div className="font-black text-base uppercase tracking-tight">{incident.callType}</div>
-                    <div className="text-xs text-slate-500 mt-1">Location: {incident.location}</div>
+                    <div className="text-xs text-slate-500 mt-1 italic">Location: {incident.location}</div>
                 </div>
                ))}
-               {incidents.filter(i => i.status === 'ACTIVE').length === 0 && <div className="text-center py-20 text-slate-700 font-black text-[10px] uppercase tracking-widest opacity-30 italic">Operational Silence</div>}
+               {incidents.length === 0 && <div className="text-center py-20 text-slate-700 font-black text-[10px] uppercase tracking-widest opacity-30 italic">Searching Network For Frequencies...</div>}
             </div>
          )}
          {mobileTab === 'ACTIVE' && (
@@ -526,23 +529,29 @@ const App: React.FC = () => {
                     <div className="flex flex-col h-full space-y-4 overflow-hidden">
                         <div className="p-4 bg-slate-900/40 border border-slate-800 rounded-2xl shrink-0">
                             <h2 className="text-2xl font-black text-white uppercase tracking-tighter mb-1">{activeIncident.callType}</h2>
-                            <div className="text-[10px] text-slate-500 uppercase tracking-widest">LOC: {activeIncident.location}</div>
-                            {session.role === 'DISPATCH' && <button onClick={handleCloseIncident} className="w-full mt-4 bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest border border-red-500/20 shadow-lg">Purge Broadcast</button>}
+                            <div className="text-[10px] text-slate-500 uppercase tracking-widest italic">Target: {activeIncident.location}</div>
+                            {session.role === 'DISPATCH' && <button onClick={handleCloseIncident} className="w-full mt-4 bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest border border-red-500/20 shadow-lg active:scale-95 transition-all">Terminate Broadcast</button>}
                         </div>
                         <div className="flex-1 bg-slate-950/40 rounded-2xl border border-slate-800 overflow-hidden flex flex-col shadow-2xl min-h-0">
                             <div className="flex-1 overflow-y-auto p-4 space-y-4 font-mono text-xs custom-scrollbar">
-                                {activeIncident.logs.map(log => (
-                                    <div key={log.id} className="flex gap-3"><span className="text-slate-800 font-black text-[9px] shrink-0 mt-0.5">[{log.timestamp.split(' ')[0]}]</span><div><span className={`font-black uppercase text-[10px] mr-2 ${log.sender === 'DISPATCH' ? 'text-blue-500' : 'text-emerald-500'}`}>{log.sender}:</span><span className="text-slate-400">{log.message}</span></div></div>
-                                ))}
+                                {(() => {
+                                  let logs: IncidentLog[] = [];
+                                  try {
+                                     logs = typeof activeIncident.logs === 'string' ? JSON.parse(activeIncident.logs) : activeIncident.logs;
+                                  } catch (e) {}
+                                  return logs.map((log, idx) => (
+                                    <div key={idx} className="flex gap-3"><span className="text-slate-800 font-black text-[9px] shrink-0 mt-0.5">[{log.timestamp.split(' ')[0]}]</span><div><span className={`font-black uppercase text-[10px] mr-2 ${log.sender === 'DISPATCH' ? 'text-blue-500' : 'text-emerald-500'}`}>{log.sender}:</span><span className="text-slate-400">{log.message}</span></div></div>
+                                  ));
+                                })()}
                             </div>
                             <div className="p-4 bg-slate-950/60 border-t border-slate-800 flex gap-2 shrink-0">
-                                <input type="text" value={logInput} onChange={(e) => setLogInput(e.target.value)} placeholder="Situational update..." className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs font-bold outline-none text-white focus:ring-1 focus:ring-blue-500" />
-                                <button onClick={handleAddLog} className="bg-blue-600 p-3 rounded-xl shadow-lg active:scale-95"><Icons.Send /></button>
+                                <input type="text" value={logInput} onChange={(e) => setLogInput(e.target.value)} placeholder="Situational update..." className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs font-bold outline-none text-white focus:ring-1 focus:ring-blue-500 transition-all shadow-inner" />
+                                <button onClick={handleAddLog} className="bg-blue-600 p-3 rounded-xl shadow-lg active:scale-95 transition-all"><Icons.Send /></button>
                             </div>
                         </div>
                     </div>
                 ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center opacity-20"><Icons.Send /><p className="text-[10px] font-black uppercase mt-4 tracking-widest">Select Incident from Queue</p></div>
+                    <div className="flex-1 flex flex-col items-center justify-center opacity-20"><Icons.Send /><p className="text-[10px] font-black uppercase mt-4 tracking-widest">Select From Broadcast Queue</p></div>
                 )}
             </div>
          )}
@@ -569,15 +578,15 @@ const App: React.FC = () => {
       
       {isCreatingCall && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-4 md:p-8">
-          <div className="bg-slate-900 border border-slate-800 rounded-[2rem] md:rounded-[3rem] p-6 md:p-12 w-full max-w-2xl space-y-6 md:y-10 animate-in zoom-in-95 shadow-3xl max-h-[90vh] overflow-y-auto custom-scrollbar">
+          <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-8 md:p-12 w-full max-w-2xl space-y-8 animate-in zoom-in-95 shadow-3xl max-h-[90vh] overflow-y-auto custom-scrollbar">
              <div className="grid md:grid-cols-2 gap-6 md:gap-8">
-                <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Incident Category</label><select value={newCallType} onChange={(e) => setNewCallType(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-5 font-black text-white outline-none appearance-none cursor-pointer">{CALL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
+                <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Classification</label><select value={newCallType} onChange={(e) => setNewCallType(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-5 font-black text-white outline-none appearance-none cursor-pointer transition-all hover:border-slate-700 shadow-inner">{CALL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
                 <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Priority Code</label><div className="grid grid-cols-2 gap-2">{Object.values(Priority).map(p => <button key={p} onClick={() => setNewPriority(p)} className={`py-3 md:py-4 rounded-xl border text-[10px] font-black uppercase transition-all tracking-tighter ${newPriority === p ? 'bg-blue-600 text-white shadow-lg border-blue-400' : 'bg-slate-950 text-slate-700 border-slate-800'}`}>{p}</button>)}</div></div>
              </div>
-             <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Operational Location</label><input type="text" placeholder="STREET / ZONE / GRID..." value={newLocation} onChange={(e) => setNewLocation(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-6 font-black outline-none focus:ring-2 focus:ring-blue-500 text-white shadow-inner" /></div>
+             <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Deployment Coordinates</label><input type="text" placeholder="GRID / ZONE / STREET / UNIT" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-6 font-black outline-none focus:ring-2 focus:ring-blue-500 text-white shadow-inner transition-all placeholder:text-slate-800" /></div>
              <div className="flex gap-4 md:gap-6 pt-4">
-                <button onClick={() => setIsCreatingCall(false)} className="flex-1 font-black text-[11px] text-slate-500 uppercase tracking-widest hover:text-white transition-colors">Discard</button>
-                <button onClick={createIncident} className="flex-[3] bg-blue-600 hover:bg-blue-500 text-white py-4 md:py-6 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl shadow-blue-900/40 active:scale-95 transition-all">Broadcast Call</button>
+                <button onClick={() => setIsCreatingCall(false)} className="flex-1 font-black text-[11px] text-slate-500 uppercase tracking-widest hover:text-white transition-colors">Abort</button>
+                <button onClick={createIncident} className="flex-[3] bg-blue-600 hover:bg-blue-500 text-white py-4 md:py-6 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl shadow-blue-900/40 active:scale-95 transition-all">Establish Broadcast</button>
              </div>
           </div>
         </div>
@@ -587,12 +596,12 @@ const App: React.FC = () => {
         <div className="flex gap-4 md:gap-10 items-center">
           <div className="flex items-center gap-2 md:gap-3">
              <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-blue-500 animate-ping' : 'bg-emerald-500 shadow-[0_0_10px_#10b981]'} transition-colors`}></div>
-             NETWORK: {isSyncing ? 'UPDATING' : 'ONLINE'}
+             NETWORK_SYNC: {isSyncing ? 'UPDATING' : 'ONLINE'}
           </div>
-          <div className="hidden sm:flex items-center gap-3 text-slate-800 italic">FREQ_UP: {roomId.toUpperCase()}</div>
+          <div className="hidden sm:flex items-center gap-3 text-slate-800 italic">FREQU_ID: {roomId.toUpperCase()}</div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="text-slate-800 font-black hidden xs:block">NEXUS v5.7.0 // REALTIME_SYNC_FIXED</div>
+          <div className="text-slate-800 font-black hidden xs:block">NEXUS_CORE v5.8.0 // STABLE_UPLINK</div>
         </div>
       </footer>
     </div>
