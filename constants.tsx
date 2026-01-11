@@ -2,16 +2,67 @@
 import React from 'react';
 
 export const CALL_TYPES = [
-  '10-31 (Crime in Progress)',
-  '10-50 (Vehicle Accident)',
-  '10-52 (Resuscitation)',
-  'Medical Emergency',
-  'Structure Fire',
-  'Domestic Dispute',
-  'Traffic Stop',
-  'Welfare Check',
-  'Trespassing',
-  'Armed Robbery'
+  '10-01 Call Your Office',
+  '10-02 Report To Your Office',
+  '10-03 Call Dispatcher By Telephone',
+  '10-04 Acknowledgment',
+  '10-05 Repeat Message',
+  '10-06 Stand By',
+  '10-07 Verify Address',
+  '10-10 Possible Crime',
+  '10-11 Traffic Stop',
+  '10-12 Police Officer Assist',
+  '10-13 Assist Police Officer (URGENT)',
+  '10-14 Verified Complaint (Non-Crime)',
+  '10-20 Past Robbery',
+  '10-21 Past Burglary',
+  '10-22 Past Larceny',
+  '10-24 Past Assault',
+  '10-29 Past Other Crime',
+  '10-30 Robbery in Progress',
+  '10-31 Burglary in Progress',
+  '10-32 Larceny in Progress',
+  '10-33 Explosive Device or Threat',
+  '10-34 Assault in Progress',
+  '10-39 Other Crime in Progress',
+  '10-44 Permission To Leave Post',
+  '10-50 Disorderly Person/Group/Noise',
+  '10-51 Roving Band',
+  '10-52 Dispute (Family/Other)',
+  '10-53 Vehicle Accident',
+  '10-54 Ambulance Case',
+  '10-55 Ambulance Case - No Siren',
+  '10-58 Assist Ambulance',
+  '10-59 Alarm of Fire',
+  '10-61 Precision Policing',
+  '10-62 Out of Service (Mechanical)',
+  '10-63 Out of Service (Meal)',
+  '10-65 Miscellaneous Police Requirement',
+  '10-66 Escort',
+  '10-67 Traffic Assignment',
+  '10-68 See Officer',
+  '10-69 Other Non-Criminal Incident',
+  '10-75 On Scene (Major Incident)',
+  '10-80 Cancel',
+  '10-81 At Court',
+  '10-82 Verification / Arrest Processing',
+  '10-83 At Hospital',
+  '10-84 Arrived at Scene',
+  '10-85 Need Additional Unit',
+  '10-86 Female in Custody',
+  '10-87 Unit to Unit Transmission',
+  '10-88 Vehicle Assignment',
+  '10-89 Other (Hospital/Court/Verification)',
+  '10-90 Unfounded',
+  '10-91 Non-Crime Corrected',
+  '10-92 Arrest Made',
+  '10-93 Summons Served',
+  '10-94 Vehicle Recovery',
+  '10-95 Non-Crime Corrected (Hospital/Court)',
+  '10-96 Medical Examiner Notified',
+  '10-97 Patient in Custody',
+  '10-98 Resumed Patrol',
+  '10-99 Other Final Disposition'
 ];
 
 export const STATUS_COLORS: Record<string, string> = {
@@ -57,19 +108,15 @@ export const Icons = {
   Trash: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
   ),
-  // Fix: Added missing Refresh icon used in App.tsx
   Refresh: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
   ),
-  // Fix: Added missing Monitor icon used in App.tsx
   Monitor: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
   ),
-  // Fix: Added missing Smartphone icon used in App.tsx
   Smartphone: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg>
   ),
-  // Fix: Added missing AlertCircle icon used in App.tsx
   AlertCircle: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
   )
