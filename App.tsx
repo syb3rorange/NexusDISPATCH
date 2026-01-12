@@ -13,6 +13,8 @@ const gun = Gun([
 const STORAGE_KEY_PROFILE = 'nexus_cad_profile_v7';
 const STORAGE_KEY_DISPATCH_AUTH = 'nexus_cad_dispatch_v7';
 const STORAGE_KEY_SESSION_TYPE = 'nexus_cad_session_type_v7';
+const STORAGE_KEY_AUTO_REFRESH = 'nexus_cad_auto_refresh';
+const STORAGE_KEY_REFRESH_INTERVAL = 'nexus_cad_refresh_interval';
 
 const App: React.FC = () => {
   const [roomId] = useState<string>(() => {
@@ -40,6 +42,17 @@ const App: React.FC = () => {
   const [lastSyncTime, setLastSyncTime] = useState<number>(Date.now());
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Auto Refresh States
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(() => {
+    return localStorage.getItem(STORAGE_KEY_AUTO_REFRESH) === 'true';
+  });
+  const [refreshInterval, setRefreshInterval] = useState<number>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_REFRESH_INTERVAL);
+    return saved ? parseInt(saved, 10) : 10;
+  });
+  const [timeLeft, setTimeLeft] = useState<number>(refreshInterval);
+  const [showRefreshSettings, setShowRefreshSettings] = useState(false);
 
   const [newCallType, setNewCallType] = useState(CALL_TYPES[0]);
   const [newLocation, setNewLocation] = useState('');
@@ -115,6 +128,34 @@ const App: React.FC = () => {
       root.get('incidents').off();
     };
   }, [roomId, session?.role, activeIncidentId, isMobileMode]);
+
+  // Auto Refresh Logic
+  useEffect(() => {
+    let timer: number;
+    if (autoRefreshEnabled) {
+      timer = window.setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 1) {
+            handleManualRefresh();
+            return refreshInterval;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      setTimeLeft(refreshInterval);
+    }
+    return () => clearInterval(timer);
+  }, [autoRefreshEnabled, refreshInterval]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_AUTO_REFRESH, autoRefreshEnabled.toString());
+  }, [autoRefreshEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_REFRESH_INTERVAL, refreshInterval.toString());
+    setTimeLeft(refreshInterval);
+  }, [refreshInterval]);
 
   useEffect(() => {
     if (activeIncidentId || mobileTab === 'ACTIVE') {
@@ -302,8 +343,76 @@ const App: React.FC = () => {
           <div className={`${session.role === 'DISPATCH' ? 'bg-blue-600 shadow-blue-500/40' : 'bg-emerald-600 shadow-emerald-500/40'} p-2 rounded-xl border border-white/20 shadow-lg`}><Icons.Police /></div>
           <h1 className="text-lg md:text-xl font-black uppercase tracking-tighter hidden sm:block">Nexus<span className={session.role === 'DISPATCH' ? 'text-blue-500' : 'text-emerald-500'}>{session.role}</span></h1>
         </div>
-        <div className="flex items-center gap-2 md:gap-4">
-          <button title="Tactical Sync" onClick={handleManualRefresh} className={`p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 text-slate-500 transition-all ${isRefreshing ? 'animate-spin text-blue-500' : ''}`}><Icons.Refresh /></button>
+        <div className="flex items-center gap-2 md:gap-4 relative">
+          
+          {/* Refresh Controls */}
+          <div className="flex items-center gap-1 bg-slate-950/40 border border-slate-800 rounded-xl p-1 pr-3">
+            <button 
+              title="Manual Sync" 
+              onClick={handleManualRefresh} 
+              className={`p-2 rounded-lg hover:bg-slate-800 text-slate-500 transition-all ${isRefreshing ? 'animate-spin text-blue-500' : ''}`}
+            >
+              <Icons.Refresh />
+            </button>
+            <div className="flex flex-col items-center justify-center min-w-[3rem]">
+              <span className={`text-[9px] font-black font-mono leading-none ${autoRefreshEnabled ? 'text-blue-400' : 'text-slate-700'}`}>
+                {autoRefreshEnabled ? `${timeLeft}s` : '--'}
+              </span>
+            </div>
+            <button 
+              onClick={() => setShowRefreshSettings(!showRefreshSettings)} 
+              className={`p-2 rounded-lg hover:bg-slate-800 transition-all ${showRefreshSettings ? 'text-blue-500' : 'text-slate-500'}`}
+              title="Auto-Refresh Settings"
+            >
+              <Icons.Cpu />
+            </button>
+
+            {showRefreshSettings && (
+              <div className="absolute top-14 right-0 w-64 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-3xl z-[70] animate-in fade-in slide-in-from-top-2">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-6">Auto-Refresh Engine</h3>
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-300">Enable Toggle</span>
+                    <button 
+                      onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
+                      className={`w-12 h-6 rounded-full transition-all relative ${autoRefreshEnabled ? 'bg-blue-600' : 'bg-slate-800'}`}
+                    >
+                      <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${autoRefreshEnabled ? 'left-7' : 'left-1'}`}></div>
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-bold text-slate-300">Sync Interval</span>
+                      <span className="text-xs font-black text-blue-400 font-mono">{refreshInterval}s</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="5" 
+                      max="60" 
+                      step="5" 
+                      value={refreshInterval} 
+                      onChange={(e) => setRefreshInterval(parseInt(e.target.value, 10))}
+                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    />
+                    <div className="flex justify-between text-[8px] font-black text-slate-700 uppercase tracking-widest">
+                      <span>5s</span>
+                      <span>60s</span>
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-slate-800">
+                    <p className="text-[9px] text-slate-600 leading-relaxed italic">Engine re-initializes full application state upon cycle completion.</p>
+                  </div>
+                  <button 
+                    onClick={() => setShowRefreshSettings(false)}
+                    className="w-full py-3 bg-slate-800 hover:bg-slate-750 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <button onClick={() => setIsMobileMode(!isMobileMode)} className="p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 text-slate-500 transition-all">{isMobileMode ? <Icons.Monitor /> : <Icons.Smartphone />}</button>
           <button onClick={() => setIsCreatingCall(true)} className="bg-blue-600 hover:bg-blue-500 px-4 md:px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg">New Broadcast</button>
           <button onClick={handleSignOut} className="text-[10px] font-black uppercase text-slate-600 hover:text-red-500 px-2 transition-colors">Sign Out</button>
