@@ -15,6 +15,8 @@ const STORAGE_KEY_DISPATCH_AUTH = 'nexus_cad_dispatch_v7';
 const STORAGE_KEY_SESSION_TYPE = 'nexus_cad_session_type_v7';
 const STORAGE_KEY_AUTO_REFRESH = 'nexus_cad_auto_refresh';
 const STORAGE_KEY_REFRESH_INTERVAL = 'nexus_cad_refresh_interval';
+const STORAGE_KEY_ACTIVE_INCIDENT = 'nexus_cad_active_incident_id';
+const STORAGE_KEY_MOBILE_TAB = 'nexus_cad_mobile_tab';
 
 const App: React.FC = () => {
   const [roomId] = useState<string>(() => {
@@ -33,12 +35,18 @@ const App: React.FC = () => {
 
   const [unitsMap, setUnitsMap] = useState<Record<string, Unit>>({});
   const [incidentsMap, setIncidentsMap] = useState<Record<string, Incident>>({});
-  const [activeIncidentId, setActiveIncidentId] = useState<string | null>(null);
   
+  // Persisted UI State
+  const [activeIncidentId, setActiveIncidentId] = useState<string | null>(() => {
+    return localStorage.getItem(STORAGE_KEY_ACTIVE_INCIDENT);
+  });
+  const [mobileTab, setMobileTab] = useState<'UNITS' | 'INCIDENTS' | 'ACTIVE'>(() => {
+    return (localStorage.getItem(STORAGE_KEY_MOBILE_TAB) as any) || 'INCIDENTS';
+  });
+
   const [isCreatingCall, setIsCreatingCall] = useState(false);
   const [logInput, setLogInput] = useState('');
   const [isMobileMode, setIsMobileMode] = useState(window.innerWidth < 1024);
-  const [mobileTab, setMobileTab] = useState<'UNITS' | 'INCIDENTS' | 'ACTIVE'>('INCIDENTS');
   const [lastSyncTime, setLastSyncTime] = useState<number>(Date.now());
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -82,6 +90,16 @@ const App: React.FC = () => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Persist specific UI states to handle hard refreshes gracefully
+  useEffect(() => {
+    if (activeIncidentId) localStorage.setItem(STORAGE_KEY_ACTIVE_INCIDENT, activeIncidentId);
+    else localStorage.removeItem(STORAGE_KEY_ACTIVE_INCIDENT);
+  }, [activeIncidentId]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_MOBILE_TAB, mobileTab);
+  }, [mobileTab]);
 
   // Real-time State Sync
   useEffect(() => {
@@ -129,10 +147,11 @@ const App: React.FC = () => {
     };
   }, [roomId, session?.role, activeIncidentId, isMobileMode]);
 
-  // Auto Refresh Logic
+  // Auto Refresh Logic: PAUSES when an incident is active
   useEffect(() => {
     let timer: number;
-    if (autoRefreshEnabled) {
+    // Only count down if auto-refresh is enabled AND no call is currently active/open
+    if (autoRefreshEnabled && !activeIncidentId) {
       timer = window.setInterval(() => {
         setTimeLeft(prev => {
           if (prev <= 1) {
@@ -142,11 +161,14 @@ const App: React.FC = () => {
           return prev - 1;
         });
       }, 1000);
+    } else if (activeIncidentId) {
+      // If a call is active, reset timer to full but don't count down
+      setTimeLeft(refreshInterval);
     } else {
       setTimeLeft(refreshInterval);
     }
     return () => clearInterval(timer);
-  }, [autoRefreshEnabled, refreshInterval]);
+  }, [autoRefreshEnabled, refreshInterval, activeIncidentId]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_AUTO_REFRESH, autoRefreshEnabled.toString());
@@ -212,6 +234,8 @@ const App: React.FC = () => {
 
   const handleSignOut = () => {
     localStorage.removeItem(STORAGE_KEY_SESSION_TYPE);
+    localStorage.removeItem(STORAGE_KEY_ACTIVE_INCIDENT);
+    localStorage.removeItem(STORAGE_KEY_MOBILE_TAB);
     setSession(null);
   };
 
@@ -273,7 +297,12 @@ const App: React.FC = () => {
     });
   };
 
-  const handleCloseIncident = () => {
+  const handleMinimizeIncident = () => {
+    setActiveIncidentId(null);
+    if (isMobileMode) setMobileTab('INCIDENTS');
+  };
+
+  const handlePurgeIncident = () => {
     if (!activeIncidentId) return;
     gun.get('nexus_cad_v7_final').get(roomId).get('incidents').get(activeIncidentId).put(null);
     setActiveIncidentId(null);
@@ -354,9 +383,9 @@ const App: React.FC = () => {
             >
               <Icons.Refresh />
             </button>
-            <div className="flex flex-col items-center justify-center min-w-[3rem]">
-              <span className={`text-[9px] font-black font-mono leading-none ${autoRefreshEnabled ? 'text-blue-400' : 'text-slate-700'}`}>
-                {autoRefreshEnabled ? `${timeLeft}s` : '--'}
+            <div className="flex flex-col items-center justify-center min-w-[3.5rem]">
+              <span className={`text-[9px] font-black font-mono leading-none ${activeIncidentId ? 'text-amber-500' : autoRefreshEnabled ? 'text-blue-400' : 'text-slate-700'}`}>
+                {activeIncidentId ? 'PAUSED' : autoRefreshEnabled ? `${timeLeft}s` : '--'}
               </span>
             </div>
             <button 
@@ -400,7 +429,7 @@ const App: React.FC = () => {
                     </div>
                   </div>
                   <div className="pt-2 border-t border-slate-800">
-                    <p className="text-[9px] text-slate-600 leading-relaxed italic">Engine re-initializes full application state upon cycle completion.</p>
+                    <p className="text-[9px] text-slate-600 leading-relaxed italic">Engine re-initializes full application state upon cycle completion. Pauses during active call focus.</p>
                   </div>
                   <button 
                     onClick={() => setShowRefreshSettings(false)}
@@ -477,7 +506,16 @@ const App: React.FC = () => {
                       <h2 className="text-3xl md:text-5xl font-black text-white uppercase tracking-tighter mb-2 md:mb-4 drop-shadow-2xl">{incidentsMap[activeIncidentId].callType}</h2>
                       <div className="text-[11px] text-slate-500 uppercase tracking-[0.3em] font-black italic">Target: {incidentsMap[activeIncidentId].location}</div>
                     </div>
-                    <button onClick={handleCloseIncident} className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-6 md:px-10 py-3 md:py-4 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all border border-red-500/20 shadow-xl">Purge</button>
+                    <div className="flex gap-2 md:gap-4">
+                      <button onClick={handleMinimizeIncident} className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 md:px-8 py-3 md:py-4 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all border border-slate-700 flex items-center gap-3 shadow-xl">
+                        <Icons.X /> Close View
+                      </button>
+                      {session?.role === 'DISPATCH' && (
+                        <button onClick={handlePurgeIncident} className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-6 md:px-10 py-3 md:py-4 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all border border-red-500/20 shadow-xl flex items-center gap-3">
+                          <Icons.Trash /> Purge Call
+                        </button>
+                      )}
+                    </div>
                 </div>
                 <div className="flex-1 flex flex-col bg-slate-950/40 rounded-[2rem] md:rounded-[3rem] border border-slate-800/40 overflow-hidden shadow-3xl backdrop-blur-xl" onClick={() => logInputRef.current?.focus()}>
                     <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-4 md:space-y-6 font-mono text-sm custom-scrollbar">
