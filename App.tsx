@@ -113,7 +113,7 @@ const App: React.FC = () => {
         const playersData = await playersResp.json();
         const callsData = await callsResp.json();
         
-        if (serverData) {
+        if (serverData && !serverData.error) {
           setErlcStatus({ 
             online: true, 
             players: serverData.CurrentPlayers || 0,
@@ -154,7 +154,7 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [erlcApiKey, autoCallsEnabled, roomId, incidentsMap]);
 
-  // AI Auto Dispatch Logic: Runs if enabled
+  // AI Auto Dispatch Logic & Real-time State Sync
   useEffect(() => {
     const root = gun.get('nexus_cad_v7_final').get(roomId);
 
@@ -175,16 +175,12 @@ const App: React.FC = () => {
       setIncidentsMap(prev => {
         const isNew = !prev[id] && data?.status === 'ACTIVE';
         
-        // AI Auto Dispatch: Check if we should respond
-        // Any node can trigger this to ensure it works even if no human Dispatch is on,
-        // but we'll use a 3s delay to let humans take priority.
+        // AI Auto Dispatch
         if (isNew && autoDispatchEnabled) {
           setTimeout(() => {
-            // Check latest state of the incident from GUN (to prevent duplicates)
             gun.get('nexus_cad_v7_final').get(roomId).get('incidents').get(id).once((latestIncident: any) => {
               if (!latestIncident) return;
               const logs = JSON.parse(latestIncident.logs || '[]');
-              // Only respond if no one else (Human or AI) has logged anything beyond the initial creation
               if (logs.length <= 1) {
                 handleAutoDispatchBroadcast(id, latestIncident.callType, latestIncident.location);
               }
@@ -252,7 +248,6 @@ const App: React.FC = () => {
       let logs: IncidentLog[] = [];
       try { logs = JSON.parse(incident.logs); } catch(e) { logs = []; }
       
-      // Secondary check to ensure no racing node already dispatched
       if (logs.some(l => l.sender === 'V-DISPATCH')) return;
 
       const newLog: IncidentLog = {
@@ -419,7 +414,7 @@ const App: React.FC = () => {
                 <input type="text" placeholder="Callsign" value={onboardingData.callsign} onChange={(e) => setOnboardingData(p => ({...p, callsign: e.target.value}))} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 uppercase font-mono outline-none focus:ring-2 focus:ring-emerald-500 text-sm shadow-inner" />
                 <div className="grid grid-cols-3 gap-2">
                     {[UnitType.POLICE, UnitType.FIRE, UnitType.EMS].map(t => (
-                        <button key={t} onClick={() => setOnboardingData(p => ({...p, t}))} className={`py-3 rounded-xl border text-[9px] font-black transition-all ${onboardingData.type === t ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-slate-950 border-slate-800 text-slate-600'}`}>{t}</button>
+                        <button key={t} onClick={() => setOnboardingData(p => ({...p, type: t}))} className={`py-3 rounded-xl border text-[9px] font-black transition-all ${onboardingData.type === t ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-slate-950 border-slate-800 text-slate-600'}`}>{t}</button>
                     ))}
                 </div>
               </div>
