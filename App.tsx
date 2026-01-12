@@ -45,6 +45,9 @@ const App: React.FC = () => {
   });
 
   const [isCreatingCall, setIsCreatingCall] = useState(false);
+  const [isAddingUnit, setIsAddingUnit] = useState(false);
+  const [newUnitData, setNewUnitData] = useState({ callsign: '', type: UnitType.POLICE });
+  
   const [logInput, setLogInput] = useState('');
   const [isMobileMode, setIsMobileMode] = useState(window.innerWidth < 1024);
   const [lastSyncTime, setLastSyncTime] = useState<number>(Date.now());
@@ -71,6 +74,17 @@ const App: React.FC = () => {
   const units = useMemo(() => (Object.values(unitsMap) as Unit[]).sort((a,b) => a.id.localeCompare(b.id)), [unitsMap]);
   const incidents = useMemo(() => (Object.values(incidentsMap) as Incident[]).filter(i => i && i.status === 'ACTIVE'), [incidentsMap]);
 
+  // Group units by status for better visibility
+  const groupedUnits = useMemo(() => {
+    const field: Unit[] = [];
+    const offDuty: Unit[] = [];
+    units.forEach(u => {
+        if (u.status === UnitStatus.OUT_OF_SERVICE) offDuty.push(u);
+        else field.push(u);
+    });
+    return { field, offDuty };
+  }, [units]);
+
   useEffect(() => {
     const profile = localStorage.getItem(STORAGE_KEY_PROFILE);
     const dispatchAuth = localStorage.getItem(STORAGE_KEY_DISPATCH_AUTH);
@@ -91,7 +105,6 @@ const App: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Persist specific UI states to handle hard refreshes gracefully
   useEffect(() => {
     if (activeIncidentId) localStorage.setItem(STORAGE_KEY_ACTIVE_INCIDENT, activeIncidentId);
     else localStorage.removeItem(STORAGE_KEY_ACTIVE_INCIDENT);
@@ -101,7 +114,6 @@ const App: React.FC = () => {
     localStorage.setItem(STORAGE_KEY_MOBILE_TAB, mobileTab);
   }, [mobileTab]);
 
-  // Real-time State Sync
   useEffect(() => {
     const root = gun.get('nexus_cad_v7_final').get(roomId);
 
@@ -147,10 +159,8 @@ const App: React.FC = () => {
     };
   }, [roomId, session?.role, activeIncidentId, isMobileMode]);
 
-  // Auto Refresh Logic: PAUSES when an incident is active
   useEffect(() => {
     let timer: number;
-    // Only count down if auto-refresh is enabled AND no call is currently active/open
     if (autoRefreshEnabled && !activeIncidentId) {
       timer = window.setInterval(() => {
         setTimeLeft(prev => {
@@ -161,9 +171,6 @@ const App: React.FC = () => {
           return prev - 1;
         });
       }, 1000);
-    } else if (activeIncidentId) {
-      // If a call is active, reset timer to full but don't count down
-      setTimeLeft(refreshInterval);
     } else {
       setTimeLeft(refreshInterval);
     }
@@ -214,6 +221,22 @@ const App: React.FC = () => {
     };
     
     gun.get('nexus_cad_v7_final').get(roomId).get('units').get(callsign).put(newUnit);
+  };
+
+  const handleManualAddUnit = () => {
+    if (!newUnitData.callsign) return;
+    const callsign = newUnitData.callsign.toUpperCase();
+    const newUnit: Unit = {
+      id: callsign,
+      name: callsign,
+      type: newUnitData.type,
+      status: UnitStatus.AVAILABLE,
+      robloxUser: 'MANUAL ENTRY',
+      lastUpdated: new Date().toISOString(),
+    };
+    gun.get('nexus_cad_v7_final').get(roomId).get('units').get(callsign).put(newUnit);
+    setNewUnitData({ callsign: '', type: UnitType.POLICE });
+    setIsAddingUnit(false);
   };
 
   const handleJoinUnit = () => {
@@ -309,6 +332,33 @@ const App: React.FC = () => {
     if (isMobileMode) setMobileTab('INCIDENTS');
   };
 
+  const removeUnit = (id: string) => {
+    if (confirm(`Confirm removal of unit ${id} from roster?`)) {
+        gun.get('nexus_cad_v7_final').get(roomId).get('units').get(id).put(null);
+    }
+  };
+
+  const renderUnitCard = (unit: Unit) => (
+    <div key={unit.id} className={`p-4 rounded-3xl border transition-all ${unit.name === session?.callsign ? 'bg-emerald-500/5 border-emerald-500/40 shadow-xl' : 'bg-slate-900/40 border-slate-800/50 hover:bg-slate-900/60'}`}>
+        <div className="flex justify-between mb-3 items-center">
+          <div className="flex items-center gap-2">
+            <div className="text-slate-500">{unit.type === UnitType.POLICE ? <Icons.Police /> : unit.type === UnitType.FIRE ? <Icons.Fire /> : <Icons.EMS />}</div>
+            <span className="font-mono font-black text-sm tracking-tight">{unit.name}</span>
+          </div>
+          <div className={`text-[8px] px-2 py-0.5 rounded-lg border font-black ${STATUS_COLORS[unit.status]}`}>{unit.status.replace(/_/g, ' ')}</div>
+        </div>
+        {(session?.role === 'DISPATCH' || unit.name === session?.callsign) && (
+          <div className="grid grid-cols-5 gap-1 mb-2">
+            {Object.values(UnitStatus).map(s => <button key={s} onClick={() => updateUnitStatus(unit.id, s)} title={s} className={`text-[9px] py-2 rounded-lg border font-black transition-colors ${unit.status === s ? 'bg-slate-800 border-slate-600 text-white shadow-inner' : 'bg-slate-950/40 border-slate-800 text-slate-700 hover:text-slate-500'}`}>{s.charAt(0)}</button>)}
+          </div>
+        )}
+        <div className="flex items-center justify-between text-[8px] font-mono uppercase italic">
+            <span className="text-slate-700 truncate">Op: {unit.robloxUser}</span>
+            {session?.role === 'DISPATCH' && <button onClick={() => removeUnit(unit.id)} className="text-red-900 hover:text-red-500 transition-colors"><Icons.Trash /></button>}
+        </div>
+    </div>
+  );
+
   if (!session) {
     return (
       <div className="h-screen w-screen bg-[#020617] flex flex-col items-center justify-center p-4 text-slate-100 relative overflow-hidden">
@@ -374,69 +424,18 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center gap-2 md:gap-4 relative">
           
-          {/* Refresh Controls */}
           <div className="flex items-center gap-1 bg-slate-950/40 border border-slate-800 rounded-xl p-1 pr-3">
-            <button 
-              title="Manual Sync" 
-              onClick={handleManualRefresh} 
-              className={`p-2 rounded-lg hover:bg-slate-800 text-slate-500 transition-all ${isRefreshing ? 'animate-spin text-blue-500' : ''}`}
-            >
-              <Icons.Refresh />
-            </button>
-            <div className="flex flex-col items-center justify-center min-w-[3.5rem]">
-              <span className={`text-[9px] font-black font-mono leading-none ${activeIncidentId ? 'text-amber-500' : autoRefreshEnabled ? 'text-blue-400' : 'text-slate-700'}`}>
-                {activeIncidentId ? 'PAUSED' : autoRefreshEnabled ? `${timeLeft}s` : '--'}
-              </span>
-            </div>
-            <button 
-              onClick={() => setShowRefreshSettings(!showRefreshSettings)} 
-              className={`p-2 rounded-lg hover:bg-slate-800 transition-all ${showRefreshSettings ? 'text-blue-500' : 'text-slate-500'}`}
-              title="Auto-Refresh Settings"
-            >
-              <Icons.Cpu />
-            </button>
+            <button title="Manual Sync" onClick={handleManualRefresh} className={`p-2 rounded-lg hover:bg-slate-800 text-slate-500 transition-all ${isRefreshing ? 'animate-spin text-blue-500' : ''}`}><Icons.Refresh /></button>
+            <div className="flex flex-col items-center justify-center min-w-[3.5rem]"><span className={`text-[9px] font-black font-mono leading-none ${activeIncidentId ? 'text-amber-500' : autoRefreshEnabled ? 'text-blue-400' : 'text-slate-700'}`}>{activeIncidentId ? 'PAUSED' : autoRefreshEnabled ? `${timeLeft}s` : '--'}</span></div>
+            <button onClick={() => setShowRefreshSettings(!showRefreshSettings)} className={`p-2 rounded-lg hover:bg-slate-800 transition-all ${showRefreshSettings ? 'text-blue-500' : 'text-slate-500'}`} title="Auto-Refresh Settings"><Icons.Cpu /></button>
 
             {showRefreshSettings && (
               <div className="absolute top-14 right-0 w-64 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-3xl z-[70] animate-in fade-in slide-in-from-top-2">
                 <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-6">Auto-Refresh Engine</h3>
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-300">Enable Toggle</span>
-                    <button 
-                      onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
-                      className={`w-12 h-6 rounded-full transition-all relative ${autoRefreshEnabled ? 'bg-blue-600' : 'bg-slate-800'}`}
-                    >
-                      <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${autoRefreshEnabled ? 'left-7' : 'left-1'}`}></div>
-                    </button>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-bold text-slate-300">Sync Interval</span>
-                      <span className="text-xs font-black text-blue-400 font-mono">{refreshInterval}s</span>
-                    </div>
-                    <input 
-                      type="range" 
-                      min="5" 
-                      max="60" 
-                      step="5" 
-                      value={refreshInterval} 
-                      onChange={(e) => setRefreshInterval(parseInt(e.target.value, 10))}
-                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                    />
-                    <div className="flex justify-between text-[8px] font-black text-slate-700 uppercase tracking-widest">
-                      <span>5s</span>
-                      <span>60s</span>
-                    </div>
-                  </div>
-                  <div className="pt-2 border-t border-slate-800">
-                    <p className="text-[9px] text-slate-600 leading-relaxed italic">Engine re-initializes full application state upon cycle completion. Pauses during active call focus.</p>
-                  </div>
-                  <button 
-                    onClick={() => setShowRefreshSettings(false)}
-                    className="w-full py-3 bg-slate-800 hover:bg-slate-750 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all"
-                  >
-                    Dismiss
-                  </button>
+                  <div className="flex items-center justify-between"><span className="text-xs font-bold text-slate-300">Enable Toggle</span><button onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)} className={`w-12 h-6 rounded-full transition-all relative ${autoRefreshEnabled ? 'bg-blue-600' : 'bg-slate-800'}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${autoRefreshEnabled ? 'left-7' : 'left-1'}`}></div></button></div>
+                  <div className="space-y-3"><div className="flex justify-between items-center"><span className="text-xs font-bold text-slate-300">Sync Interval</span><span className="text-xs font-black text-blue-400 font-mono">{refreshInterval}s</span></div><input type="range" min="5" max="60" step="5" value={refreshInterval} onChange={(e) => setRefreshInterval(parseInt(e.target.value, 10))} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600"/><div className="flex justify-between text-[8px] font-black text-slate-700 uppercase tracking-widest"><span>5s</span><span>60s</span></div></div>
+                  <button onClick={() => setShowRefreshSettings(false)} className="w-full py-3 bg-slate-800 hover:bg-slate-750 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all">Dismiss</button>
                 </div>
               </div>
             )}
@@ -450,31 +449,36 @@ const App: React.FC = () => {
 
       {alertMessage && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] animate-in slide-in-from-top-4">
-          <div className="bg-red-600 text-white font-black text-[11px] uppercase tracking-[0.2em] px-8 py-4 rounded-full shadow-2xl border border-white/20 flex items-center gap-4">
-             <div className="animate-ping w-2 h-2 rounded-full bg-white"></div>
-             {alertMessage}
-          </div>
+          <div className="bg-red-600 text-white font-black text-[11px] uppercase tracking-[0.2em] px-8 py-4 rounded-full shadow-2xl border border-white/20 flex items-center gap-4"><div className="animate-ping w-2 h-2 rounded-full bg-white"></div>{alertMessage}</div>
         </div>
       )}
       
       <div className="flex-1 flex overflow-hidden">
-        <aside className={`${isMobileMode ? (mobileTab === 'UNITS' ? 'flex w-full' : 'hidden') : 'w-80 flex'} border-r border-slate-800/60 bg-slate-950/40 flex-col shrink-0 overflow-y-auto custom-scrollbar`}>
-          <div className="p-6 border-b border-slate-800 flex items-center justify-between"><h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Personnel Online</h2></div>
-          <div className="p-4 space-y-3">
-            {units.map(unit => (
-              <div key={unit.id} className={`p-5 rounded-3xl border transition-all ${unit.name === session.callsign ? 'bg-emerald-500/5 border-emerald-500/40 shadow-xl' : 'bg-slate-900/40 border-slate-800/50 hover:bg-slate-900/60'}`}>
-                <div className="flex justify-between mb-2 items-center">
-                  <span className="font-mono font-black text-sm tracking-tight">{unit.name}</span>
-                  <div className={`text-[9px] px-2 py-0.5 rounded-lg border font-black ${STATUS_COLORS[unit.status]}`}>{unit.status.replace(/_/g, ' ')}</div>
+        <aside className={`${isMobileMode ? (mobileTab === 'UNITS' ? 'flex w-full' : 'hidden') : 'w-80 flex'} border-r border-slate-800/60 bg-slate-950/40 flex-col shrink-0 overflow-hidden`}>
+          <div className="p-6 border-b border-slate-800 flex items-center justify-between">
+            <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Node Roster</h2>
+            {session.role === 'DISPATCH' && <button onClick={() => setIsAddingUnit(true)} className="bg-slate-800 hover:bg-slate-700 p-2 rounded-lg transition-all text-slate-300"><Icons.Plus /></button>}
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-4 space-y-8 custom-scrollbar pb-20">
+            {groupedUnits.field.length > 0 && (
+                <div className="space-y-3">
+                    <h3 className="text-[9px] font-black text-emerald-500/60 uppercase tracking-widest px-2">Active Field Assets ({groupedUnits.field.length})</h3>
+                    {groupedUnits.field.map(u => renderUnitCard(u))}
                 </div>
-                {(session.role === 'DISPATCH' || unit.name === session.callsign) && (
-                  <div className="grid grid-cols-5 gap-1">
-                    {Object.values(UnitStatus).map(s => <button key={s} onClick={() => updateUnitStatus(unit.id, s)} className={`text-[10px] py-2 rounded-lg border font-black transition-colors ${unit.status === s ? 'bg-slate-800 border-slate-600 text-white shadow-inner' : 'bg-slate-950/40 border-slate-800 text-slate-700 hover:text-slate-500'}`}>{s.charAt(0)}</button>)}
-                  </div>
-                )}
-                <div className="mt-3 text-[9px] text-slate-700 font-mono uppercase truncate italic">Op: {unit.robloxUser}</div>
-              </div>
-            ))}
+            )}
+            {groupedUnits.offDuty.length > 0 && (
+                <div className="space-y-3">
+                    <h3 className="text-[9px] font-black text-slate-600 uppercase tracking-widest px-2">Out of Service ({groupedUnits.offDuty.length})</h3>
+                    {groupedUnits.offDuty.map(u => renderUnitCard(u))}
+                </div>
+            )}
+            {units.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-20 opacity-20 space-y-4">
+                    <Icons.Police />
+                    <span className="text-[10px] font-black uppercase tracking-widest italic">Roster Empty</span>
+                </div>
+            )}
           </div>
         </aside>
 
@@ -482,15 +486,7 @@ const App: React.FC = () => {
           <div className={`${isMobileMode && mobileTab !== 'INCIDENTS' ? 'hidden' : 'flex'} h-44 shrink-0 border-b border-slate-800/60 p-6 gap-6 overflow-x-auto items-center custom-scrollbar`}>
             {incidents.map(incident => (
               <div key={incident.id} onClick={() => { setActiveIncidentId(incident.id); if (isMobileMode) setMobileTab('ACTIVE'); }} className={`w-80 shrink-0 p-6 rounded-[2.5rem] border cursor-pointer transition-all relative ${activeIncidentId === incident.id ? 'bg-blue-900/5 border-blue-500 shadow-2xl scale-[1.02]' : 'bg-slate-900/30 border-slate-800/50 hover:bg-slate-900/40 hover:border-slate-700'}`}>
-                <div className="flex justify-between items-start mb-4">
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-mono font-bold text-slate-600">{incident.id}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
-                    <span className={`text-[10px] uppercase font-black tracking-widest ${PRIORITY_COLORS[incident.priority]}`}>{incident.priority}</span>
-                  </div>
-                </div>
+                <div className="flex justify-between items-start mb-4"><span className="text-[10px] font-mono font-bold text-slate-600">{incident.id}</span><div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div><span className={`text-[10px] uppercase font-black tracking-widest ${PRIORITY_COLORS[incident.priority]}`}>{incident.priority}</span></div></div>
                 <div className="font-black text-sm truncate uppercase tracking-wide">{incident.callType}</div>
                 <div className="text-[11px] text-slate-500 truncate mb-5 italic">Loc: {incident.location}</div>
               </div>
@@ -502,19 +498,10 @@ const App: React.FC = () => {
             {activeIncidentId && incidentsMap[activeIncidentId] ? (
               <div className="flex-1 flex flex-col p-4 md:p-8 overflow-hidden animate-in fade-in slide-in-from-bottom-2">
                 <div className="flex justify-between items-start mb-6 md:mb-10">
-                    <div>
-                      <h2 className="text-3xl md:text-5xl font-black text-white uppercase tracking-tighter mb-2 md:mb-4 drop-shadow-2xl">{incidentsMap[activeIncidentId].callType}</h2>
-                      <div className="text-[11px] text-slate-500 uppercase tracking-[0.3em] font-black italic">Target: {incidentsMap[activeIncidentId].location}</div>
-                    </div>
+                    <div><h2 className="text-3xl md:text-5xl font-black text-white uppercase tracking-tighter mb-2 md:mb-4 drop-shadow-2xl">{incidentsMap[activeIncidentId].callType}</h2><div className="text-[11px] text-slate-500 uppercase tracking-[0.3em] font-black italic">Target: {incidentsMap[activeIncidentId].location}</div></div>
                     <div className="flex gap-2 md:gap-4">
-                      <button onClick={handleMinimizeIncident} className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 md:px-8 py-3 md:py-4 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all border border-slate-700 flex items-center gap-3 shadow-xl">
-                        <Icons.X /> Close View
-                      </button>
-                      {session?.role === 'DISPATCH' && (
-                        <button onClick={handlePurgeIncident} className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-6 md:px-10 py-3 md:py-4 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all border border-red-500/20 shadow-xl flex items-center gap-3">
-                          <Icons.Trash /> Purge Call
-                        </button>
-                      )}
+                      <button onClick={handleMinimizeIncident} className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 md:px-8 py-3 md:py-4 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all border border-slate-700 flex items-center gap-3 shadow-xl"><Icons.X /> Close View</button>
+                      {session?.role === 'DISPATCH' && <button onClick={handlePurgeIncident} className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-6 md:px-10 py-3 md:py-4 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all border border-red-500/20 shadow-xl flex items-center gap-3"><Icons.Trash /> Purge Call</button>}
                     </div>
                 </div>
                 <div className="flex-1 flex flex-col bg-slate-950/40 rounded-[2rem] md:rounded-[3rem] border border-slate-800/40 overflow-hidden shadow-3xl backdrop-blur-xl" onClick={() => logInputRef.current?.focus()}>
@@ -535,10 +522,7 @@ const App: React.FC = () => {
                     </div>
                 </div>
               </div>
-            ) : <div className="flex-1 flex flex-col items-center justify-center opacity-10">
-                  <div className="w-24 md:w-32 h-24 md:h-32 mb-6 md:mb-8 bg-slate-900 rounded-[2rem] md:rounded-[3rem] flex items-center justify-center border border-slate-800 shadow-2xl"><Icons.Police /></div>
-                  <div className="text-2xl md:text-4xl font-black uppercase tracking-[0.5em] text-white">System Idle</div>
-                </div>}
+            ) : <div className="flex-1 flex flex-col items-center justify-center opacity-10"><div className="w-24 md:w-32 h-24 md:h-32 mb-6 md:mb-8 bg-slate-900 rounded-[2rem] md:rounded-[3rem] flex items-center justify-center border border-slate-800 shadow-2xl"><Icons.Police /></div><div className="text-2xl md:text-4xl font-black uppercase tracking-[0.5em] text-white">System Idle</div></div>}
           </div>
         </section>
       </div>
@@ -552,36 +536,41 @@ const App: React.FC = () => {
       )}
 
       {isCreatingCall && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-4 md:p-8">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-4 md:p-8">
           <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-8 md:p-12 w-full max-w-2xl space-y-8 animate-in zoom-in-95 shadow-3xl max-h-[90vh] overflow-y-auto custom-scrollbar">
              <div className="grid md:grid-cols-2 gap-6 md:gap-8">
                 <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Call Category</label><select value={newCallType} onChange={(e) => setNewCallType(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-5 font-black text-white outline-none appearance-none cursor-pointer shadow-inner">{CALL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
                 <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Response Code</label><div className="grid grid-cols-2 gap-2">{Object.values(Priority).map(p => <button key={p} onClick={() => setNewPriority(p)} className={`py-3 md:py-4 rounded-xl border text-[10px] font-black uppercase transition-all tracking-tighter ${newPriority === p ? 'bg-blue-600 text-white shadow-lg border-blue-400' : 'bg-slate-950 text-slate-700 border-slate-800'}`}>{p}</button>)}</div></div>
              </div>
-             <div className="space-y-4">
-                <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Location Coordinates</label>
-                <input type="text" placeholder="STREET / POI / POSTAL" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} list="loc-suggestions" className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-6 font-black outline-none focus:ring-2 focus:ring-blue-500 text-white shadow-inner transition-all placeholder:text-slate-800" />
-                <datalist id="loc-suggestions">{ERLC_LOCATIONS.map(l => <option key={l} value={l} />)}</datalist>
-             </div>
-             <div className="flex gap-4 md:gap-6 pt-4">
-                <button onClick={() => setIsCreatingCall(false)} className="flex-1 font-black text-[11px] text-slate-500 uppercase tracking-widest hover:text-white transition-colors">Discard</button>
-                <button onClick={createIncident} className="flex-[3] bg-blue-600 hover:bg-blue-500 text-white py-4 md:py-6 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl active:scale-95 transition-all">Broadcast Call</button>
-             </div>
+             <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Location Coordinates</label><input type="text" placeholder="STREET / POI / POSTAL" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} list="loc-suggestions" className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-6 font-black outline-none focus:ring-2 focus:ring-blue-500 text-white shadow-inner transition-all placeholder:text-slate-800" /><datalist id="loc-suggestions">{ERLC_LOCATIONS.map(l => <option key={l} value={l} />)}</datalist></div>
+             <div className="flex gap-4 md:gap-6 pt-4"><button onClick={() => setIsCreatingCall(false)} className="flex-1 font-black text-[11px] text-slate-500 uppercase tracking-widest hover:text-white transition-colors">Discard</button><button onClick={createIncident} className="flex-[3] bg-blue-600 hover:bg-blue-500 text-white py-4 md:py-6 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl active:scale-95 transition-all">Broadcast Call</button></div>
           </div>
         </div>
       )}
 
+      {isAddingUnit && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-4">
+           <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-8 md:p-12 w-full max-w-lg space-y-8 animate-in zoom-in-95 shadow-3xl">
+              <h2 className="text-xl font-black uppercase tracking-widest text-white flex items-center gap-3"><Icons.Plus /> Manual Onboarding</h2>
+              <div className="space-y-6">
+                 <div className="space-y-2"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Callsign</label><input type="text" value={newUnitData.callsign} onChange={(e) => setNewUnitData(p => ({...p, callsign: e.target.value}))} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 uppercase font-mono text-white outline-none focus:ring-2 focus:ring-emerald-500" placeholder="E.G. 1L-10" /></div>
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Unit Type</label>
+                    <div className="grid grid-cols-3 gap-2">
+                        {[UnitType.POLICE, UnitType.FIRE, UnitType.EMS].map(t => (
+                            <button key={t} onClick={() => setNewUnitData(p => ({...p, type: t}))} className={`py-3 rounded-xl border text-[9px] font-black transition-all ${newUnitData.type === t ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-slate-950 border-slate-800 text-slate-600'}`}>{t}</button>
+                        ))}
+                    </div>
+                 </div>
+              </div>
+              <div className="flex gap-4 pt-4"><button onClick={() => setIsAddingUnit(false)} className="flex-1 font-black text-[11px] text-slate-500 uppercase tracking-widest hover:text-white">Cancel</button><button onClick={handleManualAddUnit} className="flex-[2] bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-2xl active:scale-95 transition-all">Add to Roster</button></div>
+           </div>
+        </div>
+      )}
+
       <footer className="h-10 md:h-12 bg-slate-950 border-t border-slate-900 flex items-center px-4 md:px-8 justify-between shrink-0 text-[10px] font-mono tracking-widest text-slate-700 uppercase font-black z-20">
-        <div className="flex gap-4 md:gap-10 items-center">
-          <div className="flex items-center gap-2 md:gap-3">
-             <div key={lastSyncTime} className={`w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981] animate-pulse`}></div>
-             SYNC_STATUS: ACTIVE
-          </div>
-          <div className="hidden sm:flex items-center gap-3 text-slate-800 italic uppercase">FREQ_ID: {roomId}</div>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="text-slate-800 font-black hidden xs:block uppercase">Nexus CAD // Operational Protocol Active</div>
-        </div>
+        <div className="flex gap-4 md:gap-10 items-center"><div className="flex items-center gap-2 md:gap-3"><div key={lastSyncTime} className={`w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981] animate-pulse`}></div>SYNC_STATUS: ACTIVE</div><div className="hidden sm:flex items-center gap-3 text-slate-800 italic uppercase">FREQ_ID: {roomId}</div></div>
+        <div className="flex items-center gap-4"><div className="text-slate-800 font-black hidden xs:block uppercase">Nexus CAD // Operational Protocol Active</div></div>
       </footer>
     </div>
   );
