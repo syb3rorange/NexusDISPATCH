@@ -50,6 +50,7 @@ const App: React.FC = () => {
 
   const [isCreatingCall, setIsCreatingCall] = useState(false);
   const [isAddingUnit, setIsAddingUnit] = useState(false);
+  const [isAssigningUnits, setIsAssigningUnits] = useState(false);
   const [newUnitData, setNewUnitData] = useState({ callsign: '', type: UnitType.POLICE });
   
   const [newCallDept, setNewCallDept] = useState<UnitType>(UnitType.POLICE);
@@ -79,17 +80,13 @@ const App: React.FC = () => {
   }, [viewMode, screenWidth]);
 
   // --- REFRESH ENGINE LOGIC ---
-  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(() => {
-    // Default to true as per request: turn back on if was off
-    return true; 
-  });
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(true);
   
   const [refreshInterval, setRefreshInterval] = useState<number>(() => {
     const saved = localStorage.getItem(STORAGE_KEY_REFRESH_INTERVAL);
     return saved ? parseInt(saved, 10) : 20;
   });
 
-  // Dynamic interval: 300s (5m) for login side, user-defined (default 20s) for app side
   const currentInterval = useMemo(() => {
     if (!session) return 300; 
     return refreshInterval;   
@@ -98,7 +95,6 @@ const App: React.FC = () => {
   const [timeLeft, setTimeLeft] = useState<number>(currentInterval);
   const [showRefreshSettings, setShowRefreshSettings] = useState(false);
 
-  // Manual refresh with restored spin animation
   const handleManualRefresh = useCallback(() => {
     setIsRefreshing(true);
     setLastSyncTime(Date.now());
@@ -107,7 +103,6 @@ const App: React.FC = () => {
     }, 1000);
   }, []);
 
-  // Pause logic: pause if looking at a call, creating a call, or in settings
   const isInputtingAction = useMemo(() => {
     return activeIncidentId !== null || isCreatingCall || isAddingUnit || showRefreshSettings;
   }, [activeIncidentId, isCreatingCall, isAddingUnit, showRefreshSettings]);
@@ -128,20 +123,15 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, [autoRefreshEnabled, currentInterval, handleManualRefresh, isInputtingAction]);
 
-  // Reset timer when interval or session context changes
   useEffect(() => {
     setTimeLeft(currentInterval);
   }, [session, currentInterval]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_AUTO_REFRESH, autoRefreshEnabled.toString());
-  }, [autoRefreshEnabled]);
-
-  useEffect(() => {
     localStorage.setItem(STORAGE_KEY_REFRESH_INTERVAL, refreshInterval.toString());
   }, [refreshInterval]);
-  // --- END REFRESH ENGINE LOGIC ---
 
+  // --- DATA SYNC ---
   useEffect(() => {
     const profile = localStorage.getItem(STORAGE_KEY_PROFILE);
     const dispatchAuth = localStorage.getItem(STORAGE_KEY_DISPATCH_AUTH);
@@ -181,6 +171,7 @@ const App: React.FC = () => {
     });
   }, [roomId]);
 
+  // --- HANDLERS ---
   const performJoin = useCallback((data: {roblox: string, callsign: string, type: UnitType}) => {
     const upperCallsign = data.callsign.toUpperCase();
     const unitData: Unit = {
@@ -236,6 +227,38 @@ const App: React.FC = () => {
     if (effectiveIsMobile) setMobileTab('ACTIVE');
   }, [roomId, newCallType, newLocation, newPriority, effectiveIsMobile]);
 
+  const handleToggleUnitAssignment = useCallback((unitId: string) => {
+    if (!activeIncidentId) return;
+    const incident = incidentsMap[activeIncidentId];
+    if (!incident) return;
+
+    let assigned = [];
+    try { assigned = JSON.parse(incident.assignedUnits); } catch(e) {}
+
+    const isCurrentlyAssigned = assigned.includes(unitId);
+    let newAssigned;
+
+    if (isCurrentlyAssigned) {
+      newAssigned = assigned.filter((id: string) => id !== unitId);
+      handleUpdateUnitStatus(unitId, UnitStatus.AVAILABLE);
+    } else {
+      newAssigned = [...assigned, unitId];
+      handleUpdateUnitStatus(unitId, UnitStatus.EN_ROUTE);
+    }
+
+    gun.get('nexus_cad_v7_final').get(roomId).get('incidents').get(activeIncidentId).get('assignedUnits').put(JSON.stringify(newAssigned));
+    
+    // Log the assignment
+    const currentLogs = JSON.parse(incident.logs);
+    const newLog = {
+      id: Date.now().toString(),
+      timestamp: new Date().toLocaleTimeString(),
+      sender: 'SYSTEM',
+      message: `${isCurrentlyAssigned ? 'Detached' : 'Attached'} Unit ${unitId}`
+    };
+    gun.get('nexus_cad_v7_final').get(roomId).get('incidents').get(activeIncidentId).get('logs').put(JSON.stringify([...currentLogs, newLog]));
+  }, [activeIncidentId, incidentsMap, roomId]);
+
   const handleSignOut = useCallback(() => {
     if (session?.callsign) {
        gun.get('nexus_cad_v7_final').get(roomId).get('units').get(session.callsign).get('status').put(UnitStatus.OUT_OF_SERVICE);
@@ -243,7 +266,7 @@ const App: React.FC = () => {
     localStorage.removeItem(STORAGE_KEY_SESSION_TYPE);
     localStorage.removeItem(STORAGE_KEY_ACTIVE_INCIDENT);
     setSession(null);
-    setAutoRefreshEnabled(true); // Re-enable refresh system on logout
+    setAutoRefreshEnabled(true); 
   }, [session, roomId]);
 
   const handleUpdateUnitStatus = (unitId: string, status: UnitStatus) => {
@@ -289,12 +312,12 @@ const App: React.FC = () => {
   }, [units]);
 
   const renderUnitCard = (unit: Unit) => {
-    const isAssigned = activeIncidentId && incidentsMap[activeIncidentId] && 
+    const isAssignedToThisCall = activeIncidentId && incidentsMap[activeIncidentId] && 
                        JSON.parse(incidentsMap[activeIncidentId].assignedUnits).includes(unit.id);
     const borderClass = unit.type === UnitType.POLICE ? 'border-blue-500/50' : 
                         unit.type === UnitType.FIRE ? 'border-red-500/50' : 'border-yellow-500/50';
     return (
-      <div key={unit.id} className={`p-3 rounded-2xl border ${borderClass} bg-slate-900/40 backdrop-blur-sm ${isAssigned ? 'ring-2 ring-blue-500 ring-offset-1 ring-offset-slate-950' : ''}`}>
+      <div key={unit.id} className={`p-3 rounded-2xl border ${borderClass} bg-slate-900/40 backdrop-blur-sm transition-all duration-300 ${isAssignedToThisCall ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-slate-950 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : ''}`}>
           <div className="flex justify-between items-center mb-2">
             <div className="flex items-center gap-1.5">
               <span className={unit.type === UnitType.POLICE ? 'text-blue-400' : unit.type === UnitType.FIRE ? 'text-red-400' : 'text-yellow-400'}>
@@ -462,18 +485,50 @@ const App: React.FC = () => {
                     {session.role === 'DISPATCH' && <button onClick={handlePurgeIncident} className="p-2 bg-red-600/20 text-red-500 rounded-xl border border-red-500/20 active:scale-90 transition-all hover:bg-red-600 hover:text-white"><Icons.Trash /></button>}
                   </div>
                 </div>
-                <div className="flex-1 flex flex-col bg-slate-950/40 rounded-3xl border border-slate-800/40 overflow-hidden shadow-2xl">
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3 font-mono text-[10px] sm:text-xs custom-scrollbar">
-                    {(() => {
-                      let logs = []; try { logs = JSON.parse(incidentsMap[activeIncidentId].logs); } catch(e) {}
-                      return logs.map((l: any, i: number) => (
-                        <div key={i} className="flex gap-2 animate-in fade-in slide-in-from-left-2"><span className="text-slate-800 font-bold shrink-0">[{l.timestamp}]</span><span className={`font-black uppercase tracking-tight ${l.sender.includes('DISPATCH') || l.sender === 'SYSTEM' ? 'text-blue-500' : 'text-emerald-500'}`}>{l.sender}:</span><span className="text-slate-400 break-words">{l.message}</span></div>
-                      ));
-                    })()}
+
+                <div className="flex-1 flex flex-col sm:flex-row gap-4 overflow-hidden mb-2">
+                  <div className="flex-1 flex flex-col bg-slate-950/40 rounded-3xl border border-slate-800/40 overflow-hidden shadow-2xl">
+                    <div className="p-3 border-b border-slate-800/40 bg-slate-900/20 flex justify-between items-center">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Tactical Journal</span>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3 font-mono text-[10px] sm:text-xs custom-scrollbar">
+                      {(() => {
+                        let logs = []; try { logs = JSON.parse(incidentsMap[activeIncidentId].logs); } catch(e) {}
+                        return logs.map((l: any, i: number) => (
+                          <div key={i} className="flex gap-2 animate-in fade-in slide-in-from-left-2"><span className="text-slate-800 font-bold shrink-0">[{l.timestamp}]</span><span className={`font-black uppercase tracking-tight ${l.sender.includes('DISPATCH') || l.sender === 'SYSTEM' ? 'text-blue-500' : 'text-emerald-500'}`}>{l.sender}:</span><span className="text-slate-400 break-words">{l.message}</span></div>
+                        ));
+                      })()}
+                    </div>
+                    <div className="p-2 sm:p-4 bg-slate-950/60 border-t border-slate-800/40 flex gap-2 shrink-0">
+                      <input value={logInput} onChange={e=>setLogInput(e.target.value)} onKeyDown={e=>e.key==='Enter' && handleAddLog()} placeholder="Tactical report..." className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-blue-500 text-white" />
+                      <button onClick={handleAddLog} className="bg-blue-600 p-3 rounded-xl active:scale-95 shadow-lg hover:bg-blue-500 transition-all"><Icons.Send /></button>
+                    </div>
                   </div>
-                  <div className="p-2 sm:p-4 bg-slate-950/60 border-t border-slate-800/40 flex gap-2 shrink-0">
-                    <input value={logInput} onChange={e=>setLogInput(e.target.value)} onKeyDown={e=>e.key==='Enter' && handleAddLog()} placeholder="Tactical report..." className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-blue-500 text-white" />
-                    <button onClick={handleAddLog} className="bg-blue-600 p-3 rounded-xl active:scale-95 shadow-lg hover:bg-blue-500 transition-all"><Icons.Send /></button>
+
+                  <div className="w-full sm:w-64 flex flex-col bg-slate-950/40 rounded-3xl border border-slate-800/40 overflow-hidden shrink-0">
+                    <div className="p-3 border-b border-slate-800/40 bg-slate-900/20 flex justify-between items-center">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Attached Units</span>
+                        {session.role === 'DISPATCH' && <button onClick={() => setIsAssigningUnits(true)} className="p-1 text-blue-400 hover:text-white transition-all"><Icons.Plus /></button>}
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar max-h-48 sm:max-h-none">
+                        {(() => {
+                          let assigned: string[] = []; try { assigned = JSON.parse(incidentsMap[activeIncidentId].assignedUnits); } catch(e) {}
+                          if (assigned.length === 0) return <div className="text-[9px] text-slate-700 italic text-center py-4 font-black">UNITS STANDBY</div>;
+                          return assigned.map(uid => {
+                            const unit = unitsMap[uid];
+                            if (!unit) return null;
+                            return (
+                                <div key={uid} className="flex items-center justify-between p-2 bg-slate-900/60 border border-slate-800 rounded-xl">
+                                    <div className="flex items-center gap-2">
+                                        <div className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[unit.status].split(' ')[0]} bg-current`}></div>
+                                        <span className="text-[10px] font-black font-mono">{unit.name}</span>
+                                    </div>
+                                    {session.role === 'DISPATCH' && <button onClick={() => handleToggleUnitAssignment(uid)} className="text-red-900 hover:text-red-500 p-1"><Icons.X /></button>}
+                                </div>
+                            );
+                          });
+                        })()}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -488,6 +543,36 @@ const App: React.FC = () => {
           <button onClick={() => setMobileTab('INCIDENTS')} className={`flex flex-col items-center gap-1 transition-all ${mobileTab === 'INCIDENTS' ? 'text-blue-400' : 'text-slate-600'}`}><Icons.Fire /><span className="text-[8px] font-black uppercase">Calls</span></button>
           <button onClick={() => activeIncidentId && setMobileTab('ACTIVE')} className={`flex flex-col items-center gap-1 transition-all ${mobileTab === 'ACTIVE' ? 'text-emerald-400' : 'text-slate-600'} ${!activeIncidentId ? 'opacity-20' : ''}`}><Icons.Send /><span className="text-[8px] font-black uppercase">Action</span></button>
         </nav>
+      )}
+
+      {/* Unit Assignment Modal */}
+      {isAssigningUnits && activeIncidentId && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/95 backdrop-blur-md p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-[2rem] p-6 w-full max-w-sm space-y-6 animate-in zoom-in-95 shadow-3xl">
+            <h2 className="text-lg font-black uppercase text-center">Attach Assets</h2>
+            <div className="max-h-60 overflow-y-auto space-y-2 custom-scrollbar pr-1">
+                {units.filter(u => u.status !== UnitStatus.OUT_OF_SERVICE).map(unit => {
+                    const assigned = JSON.parse(incidentsMap[activeIncidentId]?.assignedUnits || '[]');
+                    const isAssigned = assigned.includes(unit.id);
+                    return (
+                        <div key={unit.id} className="flex items-center justify-between p-3 bg-slate-950 rounded-xl border border-slate-800">
+                            <div className="flex items-center gap-3">
+                                <span className={unit.type === UnitType.POLICE ? 'text-blue-400' : unit.type === UnitType.FIRE ? 'text-red-400' : 'text-yellow-400'}><Icons.Police /></span>
+                                <span className="text-xs font-black font-mono">{unit.name}</span>
+                            </div>
+                            <button 
+                                onClick={() => handleToggleUnitAssignment(unit.id)}
+                                className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${isAssigned ? 'bg-red-900/30 text-red-500' : 'bg-emerald-600 text-white'}`}
+                            >
+                                {isAssigned ? 'Detach' : 'Attach'}
+                            </button>
+                        </div>
+                    );
+                })}
+            </div>
+            <button onClick={()=>setIsAssigningUnits(false)} className="w-full bg-slate-800 py-3 rounded-xl text-[10px] font-black uppercase">Close Management</button>
+          </div>
+        </div>
       )}
 
       {isAddingUnit && (
