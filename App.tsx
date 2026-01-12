@@ -40,7 +40,7 @@ const App: React.FC = () => {
   const [autoDispatchEnabled, setAutoDispatchEnabled] = useState(() => localStorage.getItem(STORAGE_KEY_AUTO_DISPATCH) === 'true');
   const [erlcApiKey, setErlcApiKey] = useState(() => localStorage.getItem(STORAGE_KEY_ERLC_KEY) || '');
   const [isAutomationOpen, setIsAutomationOpen] = useState(false);
-  const [erlcStatus, setErlcStatus] = useState<{online: boolean, players: number}>({ online: false, players: 0 });
+  const [erlcStatus, setErlcStatus] = useState<{online: boolean, players: number, roster: any[]}>({ online: false, players: 0, roster: [] });
 
   const [unitsMap, setUnitsMap] = useState<Record<string, Unit>>({});
   const [incidentsMap, setIncidentsMap] = useState<Record<string, Incident>>({});
@@ -94,32 +94,38 @@ const App: React.FC = () => {
   // ER:LC API Integration Polling
   useEffect(() => {
     if (!erlcApiKey || !autoCallsEnabled || session?.role !== 'DISPATCH') {
-      setErlcStatus({ online: false, players: 0 });
+      setErlcStatus(prev => ({ ...prev, online: false }));
       return;
     }
 
     const pollERLC = async () => {
       try {
-        // We use a CORS proxy because ER:LC API doesn't allow direct browser requests
         const proxyUrl = 'https://api.allorigins.win/raw?url=';
         const headers = { 'Server-Key': erlcApiKey };
 
-        // 1. Fetch Server Status
-        const serverResp = await fetch(`${proxyUrl}${encodeURIComponent(`${ERLC_API_BASE}/server`)}`, { headers });
+        // 1. Fetch Server Status & Player List
+        const [serverResp, playersResp, callsResp] = await Promise.all([
+          fetch(`${proxyUrl}${encodeURIComponent(`${ERLC_API_BASE}/server`)}`, { headers }),
+          fetch(`${proxyUrl}${encodeURIComponent(`${ERLC_API_BASE}/server/players`)}`, { headers }),
+          fetch(`${proxyUrl}${encodeURIComponent(`${ERLC_API_BASE}/server/calls`)}`, { headers })
+        ]);
+
         const serverData = await serverResp.json();
+        const playersData = await playersResp.json();
+        const callsData = await callsResp.json();
         
         if (serverData) {
-          setErlcStatus({ online: true, players: serverData.CurrentPlayers || 0 });
+          setErlcStatus({ 
+            online: true, 
+            players: serverData.CurrentPlayers || 0,
+            roster: Array.isArray(playersData) ? playersData : []
+          });
         }
 
-        // 2. Fetch Active Calls
-        const callsResp = await fetch(`${proxyUrl}${encodeURIComponent(`${ERLC_API_BASE}/server/calls`)}`, { headers });
-        const callsData = await callsResp.json();
-
+        // 2. Handle Live Calls
         if (Array.isArray(callsData)) {
           callsData.forEach((call: any) => {
             const callId = `ERLC-${call.CallID || Math.random().toString(36).substr(2, 5)}`;
-            // Only add if not already in incidentsMap
             if (!incidentsMap[callId]) {
               const incident: Incident = {
                 id: callId,
@@ -141,15 +147,14 @@ const App: React.FC = () => {
           });
         }
       } catch (err) {
-        console.warn("ER:LC API Polling failed (likely CORS or Invalid Key):", err);
-        setErlcStatus({ online: false, players: 0 });
+        setErlcStatus(prev => ({ ...prev, online: false }));
       }
     };
 
-    const interval = setInterval(pollERLC, 15000); // Poll every 15s
-    pollERLC(); // Initial run
+    const interval = setInterval(pollERLC, 10000); // Faster polling for Sonoran-like feel
+    pollERLC();
     return () => clearInterval(interval);
-  }, [erlcApiKey, autoCallsEnabled, session?.role, roomId]);
+  }, [erlcApiKey, autoCallsEnabled, session?.role, roomId, incidentsMap]);
 
   // Sync Logic
   useEffect(() => {
@@ -214,6 +219,23 @@ const App: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [activeIncidentId, mobileTab]);
+
+  const sendErlcCommand = async (command: string) => {
+    if (!erlcApiKey) return;
+    try {
+      const proxyUrl = 'https://api.allorigins.win/raw?url=';
+      await fetch(`${proxyUrl}${encodeURIComponent(`${ERLC_API_BASE}/server/command`)}`, {
+        method: 'POST',
+        headers: { 
+          'Server-Key': erlcApiKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ command })
+      });
+    } catch (e) {
+      console.error("Failed to send ER:LC command:", e);
+    }
+  };
 
   const handleAutoDispatchBroadcast = async (incId: string, call: string, loc: string) => {
     const message = await generateAutoDispatch(call, loc);
@@ -319,6 +341,13 @@ const App: React.FC = () => {
       logInputRef.current?.focus();
       return;
     }
+
+    // Command Console Integration
+    if (logInput.startsWith('/') && session?.role === 'DISPATCH') {
+      sendErlcCommand(logInput);
+      setLogInput('');
+      return;
+    }
     
     let finalMessage = logInput;
     if (isAIAssisting) {
@@ -361,7 +390,6 @@ const App: React.FC = () => {
           <h1 className="text-4xl md:text-6xl font-black tracking-widest mb-4 uppercase text-center shrink-0">NEXUS<span className="text-blue-500">CAD</span></h1>
           <div className="flex gap-3 mb-12 text-[10px] font-mono uppercase text-slate-600 shrink-0 tracking-[0.3em]">Frequency: <span className="text-blue-400 font-bold">{roomId}</span></div>
           <div className="grid lg:grid-cols-3 gap-6 w-full max-w-6xl">
-            {/* Dispatch Login */}
             <div className="bg-slate-900/40 border border-slate-800 p-8 md:p-10 rounded-[2.5rem] backdrop-blur-xl flex flex-col hover:border-blue-500/50 transition-all shadow-xl">
               <h2 className="text-xl font-black mb-6 uppercase flex items-center gap-3"><Icons.Send /> Dispatch</h2>
               {hasPersistentDispatch ? (
@@ -374,7 +402,6 @@ const App: React.FC = () => {
               )}
               <button onClick={handleLoginDispatch} className="w-full bg-blue-600 hover:bg-blue-500 p-5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg mt-auto active:scale-95">Establish Comms</button>
             </div>
-            {/* Field Unit Login */}
             <div className="bg-slate-900/40 border border-slate-800 p-8 md:p-10 rounded-[2.5rem] backdrop-blur-xl flex flex-col hover:border-emerald-500/50 transition-all shadow-xl">
               <h2 className="text-xl font-black mb-6 uppercase flex items-center gap-3"><Icons.Police /> Field Join</h2>
               <div className="space-y-4 mb-6">
@@ -388,7 +415,6 @@ const App: React.FC = () => {
               </div>
               <button onClick={handleJoinUnit} className="w-full bg-emerald-600 hover:bg-emerald-500 p-5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg active:scale-95">Initialize Node</button>
             </div>
-            {/* Quick Login */}
             <div className={`bg-slate-900/40 border-2 ${savedProfile ? 'border-blue-500/50 shadow-blue-500/20' : 'border-slate-800/20'} p-8 md:p-10 rounded-[2.5rem] backdrop-blur-xl flex flex-col transition-all relative overflow-hidden shadow-xl min-h-[300px]`}>
                {!savedProfile && <div className="absolute inset-0 bg-slate-950/40 backdrop-grayscale flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-slate-800 italic">No Cached Session</div>}
                <h2 className="text-xl font-black mb-6 uppercase flex items-center gap-3 text-blue-400">Quick Join</h2>
@@ -422,19 +448,12 @@ const App: React.FC = () => {
           {erlcStatus.online && (
             <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded-full">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-              <span className="text-[9px] font-black text-emerald-400 tracking-tighter">ER:LC LINK OK ({erlcStatus.players} PLAYER)</span>
-            </div>
-          )}
-
-          {autoDispatchEnabled && !erlcStatus.online && (
-            <div className="flex items-center gap-2 px-3 py-1 bg-blue-500/10 border border-blue-500/30 rounded-full animate-pulse">
-              <Icons.Cpu />
-              <span className="text-[9px] font-black text-blue-400 tracking-tighter">AI DISPATCH ACTIVE</span>
+              <span className="text-[9px] font-black text-emerald-400 tracking-tighter">ER:LC SERVER LINKED ({erlcStatus.players} PLYRS)</span>
             </div>
           )}
         </div>
         <div className="flex items-center gap-2 md:gap-4">
-          <button title="Automation Engine" onClick={() => setIsAutomationOpen(true)} className={`p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 transition-all ${autoDispatchEnabled || autoCallsEnabled ? 'text-blue-400 border-blue-500/30' : 'text-slate-500'}`}><Icons.Cpu /></button>
+          <button title="ER:LC Settings" onClick={() => setIsAutomationOpen(true)} className={`p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 transition-all ${erlcStatus.online ? 'text-emerald-400 border-emerald-500/30' : 'text-slate-500'}`}><Icons.Cpu /></button>
           <button title="Tactical Sync" onClick={handleManualRefresh} className={`p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 text-slate-500 transition-all ${isRefreshing ? 'animate-spin text-blue-500' : ''}`}><Icons.Refresh /></button>
           <button onClick={() => setIsMobileMode(!isMobileMode)} className="p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 text-slate-500 transition-all">{isMobileMode ? <Icons.Monitor /> : <Icons.Smartphone />}</button>
           {session.role === 'DISPATCH' && <button onClick={() => setIsCreatingCall(true)} className="bg-blue-600 hover:bg-blue-500 px-4 md:px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg">New Broadcast</button>}
@@ -452,15 +471,18 @@ const App: React.FC = () => {
       )}
       
       <div className="flex-1 flex overflow-hidden">
-        <aside className={`${isMobileMode ? (mobileTab === 'UNITS' ? 'flex w-full' : 'hidden') : 'w-80 flex'} border-r border-slate-800/60 bg-slate-950/40 flex-col shrink-0`}>
+        <aside className={`${isMobileMode ? (mobileTab === 'UNITS' ? 'flex w-full' : 'hidden') : 'w-80 flex'} border-r border-slate-800/60 bg-slate-950/40 flex-col shrink-0 overflow-y-auto custom-scrollbar`}>
           <div className="p-6 border-b border-slate-800 flex items-center justify-between"><h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Personnel Online</h2></div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-            {units.map(unit => (
+          <div className="p-4 space-y-3">
+            {units.map(unit => {
+              const inGame = erlcStatus.roblox.some(p => p.PermissionName === unit.robloxUser);
+              return (
               <div key={unit.id} className={`p-5 rounded-3xl border transition-all ${unit.name === session.callsign ? 'bg-emerald-500/5 border-emerald-500/40 shadow-xl' : 'bg-slate-900/40 border-slate-800/50 hover:bg-slate-900/60'}`}>
-                <div className="flex justify-between mb-3 items-center">
+                <div className="flex justify-between mb-2 items-center">
                   <span className="font-mono font-black text-sm tracking-tight">{unit.name}</span>
                   <div className={`text-[9px] px-2 py-0.5 rounded-lg border font-black ${STATUS_COLORS[unit.status]}`}>{unit.status.replace(/_/g, ' ')}</div>
                 </div>
+                {inGame && <div className="text-[8px] font-black text-emerald-500 uppercase tracking-widest mb-3 flex items-center gap-1"><div className="w-1 h-1 rounded-full bg-emerald-500 animate-ping"></div> Linked In-Game</div>}
                 {(session.role === 'DISPATCH' || unit.name === session.callsign) && (
                   <div className="grid grid-cols-5 gap-1">
                     {Object.values(UnitStatus).map(s => <button key={s} onClick={() => updateUnitStatus(unit.id, s)} className={`text-[10px] py-2 rounded-lg border font-black transition-colors ${unit.status === s ? 'bg-slate-800 border-slate-600 text-white shadow-inner' : 'bg-slate-950/40 border-slate-800 text-slate-700 hover:text-slate-500'}`}>{s.charAt(0)}</button>)}
@@ -468,8 +490,28 @@ const App: React.FC = () => {
                 )}
                 <div className="mt-3 text-[9px] text-slate-700 font-mono uppercase truncate italic">Op: {unit.robloxUser}</div>
               </div>
-            ))}
+            )})}
           </div>
+
+          {erlcStatus.online && (
+            <>
+              <div className="p-6 border-y border-slate-800 bg-slate-950/60 flex items-center justify-between mt-4">
+                <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Server Roster</h2>
+                <span className="text-[10px] font-mono text-emerald-500">{erlcStatus.players} ACTIVE</span>
+              </div>
+              <div className="p-4 space-y-2">
+                {erlcStatus.roster.map((player, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 bg-slate-900/20 border border-slate-800/40 rounded-xl hover:bg-slate-800/40 transition-colors">
+                    <span className="text-[11px] font-bold text-slate-300">{player.PermissionName}</span>
+                    {units.some(u => u.robloxUser === player.PermissionName) ? 
+                      <div className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-[8px] font-black text-emerald-500 rounded uppercase">On CAD</div> : 
+                      <div className="px-2 py-0.5 bg-slate-800/40 text-[8px] font-black text-slate-600 rounded uppercase">Unlinked</div>
+                    }
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </aside>
 
         <section className={`${isMobileMode ? (mobileTab === 'UNITS' ? 'hidden' : 'flex') : 'flex'} flex-1 flex-col bg-[#020617]`}>
@@ -477,7 +519,10 @@ const App: React.FC = () => {
             {incidents.map(incident => (
               <div key={incident.id} onClick={() => { setActiveIncidentId(incident.id); if (isMobileMode) setMobileTab('ACTIVE'); }} className={`w-80 shrink-0 p-6 rounded-[2.5rem] border cursor-pointer transition-all relative ${activeIncidentId === incident.id ? 'bg-blue-900/5 border-blue-500 shadow-2xl scale-[1.02]' : 'bg-slate-900/30 border-slate-800/50 hover:bg-slate-900/40 hover:border-slate-700'}`}>
                 <div className="flex justify-between items-start mb-4">
-                  <span className="text-[10px] font-mono font-bold text-slate-600">{incident.id}</span>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-mono font-bold text-slate-600">{incident.id}</span>
+                    {incident.id.startsWith('ERLC-') && <span className="text-[8px] font-black text-emerald-500 uppercase tracking-tighter">Live Game Feed</span>}
+                  </div>
                   <div className="flex items-center gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
                     <span className={`text-[10px] uppercase font-black tracking-widest ${PRIORITY_COLORS[incident.priority]}`}>{incident.priority}</span>
@@ -494,7 +539,10 @@ const App: React.FC = () => {
             {activeIncident ? (
               <div className="flex-1 flex flex-col p-4 md:p-8 overflow-hidden animate-in fade-in slide-in-from-bottom-2">
                 <div className="flex justify-between items-start mb-6 md:mb-10">
-                    <div><h2 className="text-3xl md:text-5xl font-black text-white uppercase tracking-tighter mb-2 md:mb-4 drop-shadow-2xl">{activeIncident.callType}</h2><div className="text-[11px] text-slate-500 uppercase tracking-[0.3em] font-black italic">Target: {activeIncident.location}</div></div>
+                    <div>
+                      <h2 className="text-3xl md:text-5xl font-black text-white uppercase tracking-tighter mb-2 md:mb-4 drop-shadow-2xl">{activeIncident.callType}</h2>
+                      <div className="text-[11px] text-slate-500 uppercase tracking-[0.3em] font-black italic">Target: {activeIncident.location}</div>
+                    </div>
                     {session.role === 'DISPATCH' && <button onClick={handleCloseIncident} className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-6 md:px-10 py-3 md:py-4 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all border border-red-500/20 shadow-xl">Purge</button>}
                 </div>
                 <div className="flex-1 flex flex-col bg-slate-950/40 rounded-[2rem] md:rounded-[3rem] border border-slate-800/40 overflow-hidden shadow-3xl backdrop-blur-xl" onClick={() => logInputRef.current?.focus()}>
@@ -508,8 +556,9 @@ const App: React.FC = () => {
                       })()}
                     </div>
                     <div className="p-4 md:p-10 bg-slate-950/60 border-t border-slate-800/40">
+                      {session?.role === 'DISPATCH' && <div className="text-[8px] font-black text-blue-500 uppercase mb-2 ml-4">Command Console: Start with / to send to game server</div>}
                       <div className="flex gap-3 md:gap-5">
-                        <input ref={logInputRef} type="text" autoFocus value={logInput} onChange={(e) => setLogInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddLog()} placeholder="Enter situational report..." className="flex-1 bg-slate-950 border border-slate-800 rounded-[1.2rem] md:rounded-[1.5rem] px-4 md:px-8 py-4 md:py-6 text-xs md:text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder:text-slate-900 shadow-inner" />
+                        <input ref={logInputRef} type="text" autoFocus value={logInput} onChange={(e) => setLogInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddLog()} placeholder={logInput.startsWith('/') ? "COMMAND MODE..." : "Enter situational report..."} className={`flex-1 bg-slate-950 border rounded-[1.2rem] md:rounded-[1.5rem] px-4 md:px-8 py-4 md:py-6 text-xs md:text-sm font-bold outline-none focus:ring-2 transition-all shadow-inner ${logInput.startsWith('/') ? 'border-blue-500 text-blue-400 focus:ring-blue-500' : 'border-slate-800 text-white focus:ring-blue-500'}`} />
                         <button onClick={() => setIsAIAssisting(!isAIAssisting)} className={`p-4 md:p-6 rounded-[1.2rem] md:rounded-[1.5rem] border transition-all ${isAIAssisting ? 'bg-blue-600 text-white border-blue-400 shadow-xl' : 'bg-slate-900 border-slate-800 text-slate-600 hover:text-white'}`}><Icons.Sparkles /></button>
                         <button onClick={handleAddLog} className="bg-blue-600 hover:bg-blue-500 p-4 md:p-6 rounded-[1.2rem] md:rounded-[1.5rem] shadow-2xl transition-all active:scale-95 border border-white/10"><Icons.Send /></button>
                       </div>
@@ -532,53 +581,59 @@ const App: React.FC = () => {
         </nav>
       )}
 
-      {/* Automation & ER:LC Settings Overlay */}
+      {/* ER:LC Tactical Settings Overlay */}
       {isAutomationOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-4 md:p-8 overflow-y-auto">
           <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-8 md:p-12 w-full max-w-xl space-y-6 animate-in zoom-in-95 shadow-3xl">
              <div className="text-center">
-                <h3 className="text-2xl font-black uppercase tracking-widest text-white mb-2">ER:LC Command Link</h3>
-                <p className="text-[10px] text-slate-500 font-mono">Live External API Integration</p>
+                <h3 className="text-2xl font-black uppercase tracking-widest text-white mb-2">ER:LC API Configuration</h3>
+                <p className="text-[10px] text-slate-500 font-mono italic">Mimicking Sonoran Live-Sync Integration</p>
              </div>
              
              <div className="space-y-4">
-                <div className="p-6 bg-slate-950/40 border border-slate-800 rounded-3xl">
-                   <div className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-3">ER:LC Server API Key</div>
+                <div className="p-6 bg-slate-950 border border-slate-800 rounded-3xl">
+                   <div className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-3">Server Secret Key</div>
                    <input 
                      type="password" 
-                     placeholder="Enter Server-Key (From Game Settings)" 
+                     placeholder="SERVER-KEY" 
                      value={erlcApiKey} 
                      onChange={(e) => setErlcApiKey(e.target.value)}
-                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-xs text-white outline-none focus:ring-2 focus:ring-blue-500"
+                     className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-4 font-mono text-xs text-white outline-none focus:ring-2 focus:ring-blue-500"
                    />
-                   <div className="text-[8px] text-slate-600 mt-3 italic uppercase leading-relaxed">
-                     Obtain this key from: In-Game -> Settings -> External API -> Copy Key.
-                   </div>
                 </div>
 
-                <div className="flex items-center justify-between p-6 bg-slate-950 border border-slate-800 rounded-3xl">
-                   <div>
-                     <div className="font-black text-xs uppercase text-white">Live Call Syncing</div>
-                     <div className="text-[9px] text-slate-500 italic mt-1">Poll server every 15s for new emergency calls.</div>
-                   </div>
-                   <button onClick={() => setAutoCallsEnabled(!autoCallsEnabled)} className={`w-14 h-8 rounded-full transition-all relative ${autoCallsEnabled ? 'bg-emerald-600' : 'bg-slate-800'}`}>
-                     <div className={`absolute top-1 w-6 h-6 rounded-full bg-white transition-all ${autoCallsEnabled ? 'left-7' : 'left-1'}`}></div>
-                   </button>
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="flex items-center justify-between p-6 bg-slate-950 border border-slate-800 rounded-3xl">
+                     <div>
+                       <div className="font-black text-xs uppercase text-white">Live Call Sync</div>
+                       <div className="text-[9px] text-slate-500 italic mt-1">Automatic incident logging from game feed.</div>
+                     </div>
+                     <button onClick={() => setAutoCallsEnabled(!autoCallsEnabled)} className={`w-14 h-8 rounded-full transition-all relative ${autoCallsEnabled ? 'bg-emerald-600' : 'bg-slate-800'}`}>
+                       <div className={`absolute top-1 w-6 h-6 rounded-full bg-white transition-all ${autoCallsEnabled ? 'left-7' : 'left-1'}`}></div>
+                     </button>
+                  </div>
+
+                  <div className="flex items-center justify-between p-6 bg-slate-950 border border-slate-800 rounded-3xl">
+                     <div>
+                       <div className="font-black text-xs uppercase text-white">AI Auto-Broadcast</div>
+                       <div className="text-[9px] text-slate-500 italic mt-1">Virtual dispatcher handles incoming API calls.</div>
+                     </div>
+                     <button onClick={() => setAutoDispatchEnabled(!autoDispatchEnabled)} className={`w-14 h-8 rounded-full transition-all relative ${autoDispatchEnabled ? 'bg-blue-600' : 'bg-slate-800'}`}>
+                       <div className={`absolute top-1 w-6 h-6 rounded-full bg-white transition-all ${autoDispatchEnabled ? 'left-7' : 'left-1'}`}></div>
+                     </button>
+                  </div>
                 </div>
 
-                <div className="flex items-center justify-between p-6 bg-slate-950 border border-slate-800 rounded-3xl">
-                   <div>
-                     <div className="font-black text-xs uppercase text-white">AI Dispatch Response</div>
-                     <div className="text-[9px] text-slate-500 italic mt-1">AI handles radio traffic for incoming ER:LC calls.</div>
+                <div className="p-6 bg-slate-950/40 border border-slate-800 rounded-3xl">
+                   <div className="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-3">Community Link Data</div>
+                   <div className="grid grid-cols-2 gap-4 text-[10px] font-mono">
+                      <div>STATUS: <span className={erlcStatus.online ? 'text-emerald-500' : 'text-red-500'}>{erlcStatus.online ? 'ONLINE' : 'OFFLINE'}</span></div>
+                      <div>PLAYERS: <span className="text-white">{erlcStatus.players}</span></div>
                    </div>
-                   <button onClick={() => setAutoDispatchEnabled(!autoDispatchEnabled)} className={`w-14 h-8 rounded-full transition-all relative ${autoDispatchEnabled ? 'bg-blue-600' : 'bg-slate-800'}`}>
-                     <div className={`absolute top-1 w-6 h-6 rounded-full bg-white transition-all ${autoDispatchEnabled ? 'left-7' : 'left-1'}`}></div>
-                   </button>
                 </div>
              </div>
              
-             <button onClick={() => setIsAutomationOpen(false)} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all shadow-xl">Establish Uplink</button>
-             <button onClick={() => { localStorage.removeItem(STORAGE_KEY_ERLC_KEY); setErlcApiKey(''); }} className="w-full text-[9px] font-black text-slate-700 uppercase hover:text-red-500 transition-colors">Wipe API Credentials</button>
+             <button onClick={() => setIsAutomationOpen(false)} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all shadow-xl">Save & Sync</button>
           </div>
         </div>
       )}
@@ -607,12 +662,12 @@ const App: React.FC = () => {
         <div className="flex gap-4 md:gap-10 items-center">
           <div className="flex items-center gap-2 md:gap-3">
              <div key={lastSyncTime} className={`w-2 h-2 rounded-full ${erlcStatus.online ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-slate-800'} animate-pulse`}></div>
-             SYSTEM: {erlcStatus.online ? 'LINKED_TO_ERLC' : 'LOCAL_ONLY'}
+             SYNC: {erlcStatus.online ? 'STABLE (ER:LC LINKED)' : 'LOCAL_ONLY'}
           </div>
-          <div className="hidden sm:flex items-center gap-3 text-slate-800 italic">FREQU_ID: {roomId.toUpperCase()}</div>
+          <div className="hidden sm:flex items-center gap-3 text-slate-800 italic uppercase">FREQ: {roomId}</div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="text-slate-800 font-black hidden xs:block">NEXUS v7.5.0 // OFFICIAL_API_INTEGRATION</div>
+          <div className="text-slate-800 font-black hidden xs:block uppercase">Nexus v7.8.2 // Official Sonoran Sync Engine</div>
         </div>
       </footer>
     </div>
