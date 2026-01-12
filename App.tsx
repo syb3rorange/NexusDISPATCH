@@ -141,9 +141,6 @@ const App: React.FC = () => {
 
     // Register unit in the joined server
     if (session?.role === 'UNIT' && session.callsign) {
-      // Small delay to allow the useEffect to load existing data first 
-      // is not needed here because setUnits in joinServer will be overridden by the load Room Data useEffect 
-      // if not careful. Instead, we rely on the state being loaded and then appending.
       setTimeout(() => {
         setUnits(prev => {
           if (prev.find(u => u.name === session.callsign)) return prev;
@@ -157,7 +154,7 @@ const App: React.FC = () => {
           };
           return [...prev, newUnit];
         });
-      }, 50);
+      }, 100);
     }
   };
 
@@ -261,6 +258,13 @@ const App: React.FC = () => {
     if (isMobileMode) setMobileTab('INCIDENTS');
   };
 
+  const copyRoomId = () => {
+    if (roomId) {
+      navigator.clipboard.writeText(roomId);
+      alert('Room Code Copied to Clipboard!');
+    }
+  };
+
   // 4. Render Logic
 
   // Screen 1: Login
@@ -328,12 +332,13 @@ const App: React.FC = () => {
           
           <div className="space-y-8">
             <div className="space-y-4">
+              <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest block text-left mb-1 px-4">Join Code</label>
               <input 
                 type="text" 
-                placeholder="Enter 6-Digit Code"
+                placeholder="000000"
                 value={joinCodeInput}
                 onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
-                className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-6 text-center text-3xl font-black tracking-[0.5em] outline-none focus:ring-2 focus:ring-blue-500 transition-all text-white placeholder:text-slate-800"
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-6 text-center text-4xl font-black tracking-[0.5em] outline-none focus:ring-2 focus:ring-blue-500 transition-all text-blue-500 placeholder:text-slate-800"
               />
               <button 
                 onClick={joinServer}
@@ -382,18 +387,26 @@ const App: React.FC = () => {
           <div className={`${themeBg} p-2 rounded-xl shadow-lg`}><Icons.Police /></div>
           <h1 className="text-lg md:text-xl font-black uppercase tracking-tighter hidden xs:block">NEXUS<span className={themeColor}>{session.role === 'DISPATCH' ? 'HQ' : session.unitType}</span></h1>
           <div className="h-6 w-px bg-slate-800 mx-1 md:mx-2"></div>
-          <div className="text-[9px] md:text-[10px] font-mono text-slate-500 uppercase tracking-widest flex items-center gap-2">
-            <span className="font-bold text-white">{session.callsign || session.username}</span>
-            <span className="text-emerald-500 font-bold hidden sm:block">CODE: {roomId}</span>
+          
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] font-black text-white uppercase tracking-widest whitespace-nowrap hidden sm:block">
+              {session.callsign || session.username}
+            </span>
+            <div 
+              onClick={copyRoomId}
+              className="bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-xl flex items-center gap-2 cursor-pointer hover:bg-emerald-500/20 transition-all active:scale-95 shadow-lg group"
+              title="Click to copy Code"
+            >
+              <span className="text-[8px] font-black text-emerald-500/60 uppercase tracking-widest hidden xs:block">CODE:</span>
+              <span className="text-xs md:text-sm font-black text-emerald-400 font-mono tracking-widest">{roomId}</span>
+              <div className="text-emerald-500/40 group-hover:text-emerald-400">
+                 <Icons.Refresh />
+              </div>
+            </div>
           </div>
         </div>
+        
         <div className="flex items-center gap-2 md:gap-4">
-          <button 
-            onClick={handleManualRefresh}
-            className={`p-2 rounded-lg border border-slate-800 hover:border-slate-600 transition-all ${isRefreshing ? 'animate-spin text-blue-500' : 'text-slate-500'}`}
-          >
-            <Icons.Refresh />
-          </button>
           {isDispatch && (
             <>
               <button onClick={() => setIsCreatingCall(true)} className="bg-blue-600 hover:bg-blue-500 px-4 md:px-6 py-2 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest shadow-lg transition-all">
@@ -413,7 +426,7 @@ const App: React.FC = () => {
         <aside className={`${isMobileMode ? (mobileTab === 'UNITS' ? 'flex w-full' : 'hidden') : 'w-80 flex'} border-r border-slate-800/60 bg-slate-950/40 flex-col shrink-0 overflow-y-auto custom-scrollbar-v z-10`}>
           <div className="p-6 border-b border-slate-800 flex items-center justify-between sticky top-0 bg-[#020617]/90 backdrop-blur-md z-10">
             <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Personnel Status</h2>
-            <div className={`w-2 h-2 rounded-full animate-pulse ${myUnit?.status === UnitStatus.OUT_OF_SERVICE ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
+            <div className={`w-2 h-2 rounded-full animate-pulse ${myUnit?.status === UnitStatus.OUT_OF_SERVICE ? 'bg-red-500 shadow-[0_0_8px_red]' : 'bg-emerald-500 shadow-[0_0_8px_emerald]'}`}></div>
           </div>
           
           <div className="p-4 space-y-6">
@@ -447,7 +460,7 @@ const App: React.FC = () => {
                       <div className="flex justify-between items-start">
                         <div className="flex flex-col">
                           <span className="font-bold text-xs">{unit.name}</span>
-                          <span className="text-[8px] text-slate-500 italic uppercase">@{unit.robloxUser}</span>
+                          <span className="text-[8px] text-slate-500 italic uppercase truncate max-w-[140px]">@{unit.robloxUser}</span>
                           <div className={`mt-1 inline-flex px-2 py-0.5 rounded text-[8px] font-black uppercase ${statusColors.split(' ')[0]} ${statusColors.split(' ')[1]}`}>
                             {unit.status.replace(/_/g, ' ')}
                           </div>
@@ -475,7 +488,7 @@ const App: React.FC = () => {
 
         {/* Main Content Area */}
         <main className={`${isMobileMode ? (mobileTab === 'UNITS' ? 'hidden' : 'flex') : 'flex'} flex-1 flex-col bg-[#020617] overflow-hidden`}>
-          {/* Incident Queue - Updated to filter only active calls */}
+          {/* Incident Queue */}
           <div className={`${isMobileMode && mobileTab !== 'INCIDENTS' ? 'hidden' : 'flex'} h-44 shrink-0 border-b border-slate-800/60 p-6 flex gap-6 overflow-x-auto items-center custom-scrollbar`}>
             {incidents.filter(inc => inc.status === 'ACTIVE').map(incident => (
               <div 
@@ -591,9 +604,9 @@ const App: React.FC = () => {
         <div className="flex gap-4 md:gap-10 items-center">
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-            LINK: {roomId}
+            LINK: <span className="text-emerald-500 font-black">{roomId}</span>
           </div>
-          <div className="text-slate-800 hidden xs:block">ROLE: {session.role} // V2.1</div>
+          <div className="text-slate-800 hidden xs:block">ROLE: {session.role} // V2.2</div>
         </div>
         <div className="text-slate-800 italic hidden sm:block">NEXUS CAD // LOCAL_PERSISTENCE</div>
       </footer>
