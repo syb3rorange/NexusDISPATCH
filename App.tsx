@@ -93,7 +93,7 @@ const App: React.FC = () => {
 
   // ER:LC API Integration Polling
   useEffect(() => {
-    if (!erlcApiKey || !autoCallsEnabled || session?.role !== 'DISPATCH') {
+    if (!erlcApiKey || !autoCallsEnabled) {
       setErlcStatus(prev => ({ ...prev, online: false }));
       return;
     }
@@ -103,7 +103,6 @@ const App: React.FC = () => {
         const proxyUrl = 'https://api.allorigins.win/raw?url=';
         const headers = { 'Server-Key': erlcApiKey };
 
-        // 1. Fetch Server Status & Player List
         const [serverResp, playersResp, callsResp] = await Promise.all([
           fetch(`${proxyUrl}${encodeURIComponent(`${ERLC_API_BASE}/server`)}`, { headers }),
           fetch(`${proxyUrl}${encodeURIComponent(`${ERLC_API_BASE}/server/players`)}`, { headers }),
@@ -122,7 +121,6 @@ const App: React.FC = () => {
           });
         }
 
-        // 2. Handle Live Calls
         if (Array.isArray(callsData)) {
           callsData.forEach((call: any) => {
             const callId = `ERLC-${call.CallID || Math.random().toString(36).substr(2, 5)}`;
@@ -151,12 +149,12 @@ const App: React.FC = () => {
       }
     };
 
-    const interval = setInterval(pollERLC, 10000); // Faster polling for Sonoran-like feel
+    const interval = setInterval(pollERLC, 10000);
     pollERLC();
     return () => clearInterval(interval);
-  }, [erlcApiKey, autoCallsEnabled, session?.role, roomId, incidentsMap]);
+  }, [erlcApiKey, autoCallsEnabled, roomId, incidentsMap]);
 
-  // Sync Logic
+  // AI Auto Dispatch Logic: Runs if enabled
   useEffect(() => {
     const root = gun.get('nexus_cad_v7_final').get(roomId);
 
@@ -176,14 +174,22 @@ const App: React.FC = () => {
       setLastSyncTime(Date.now());
       setIncidentsMap(prev => {
         const isNew = !prev[id] && data?.status === 'ACTIVE';
-        if (isNew && autoDispatchEnabled && session?.role === 'DISPATCH') {
+        
+        // AI Auto Dispatch: Check if we should respond
+        // Any node can trigger this to ensure it works even if no human Dispatch is on,
+        // but we'll use a 3s delay to let humans take priority.
+        if (isNew && autoDispatchEnabled) {
           setTimeout(() => {
-            const currentIncident = incidentsMap[id] || data;
-            const currentLogs = JSON.parse(currentIncident.logs || '[]');
-            if (currentLogs.length <= 1) {
-              handleAutoDispatchBroadcast(id, currentIncident.callType, currentIncident.location);
-            }
-          }, 3000);
+            // Check latest state of the incident from GUN (to prevent duplicates)
+            gun.get('nexus_cad_v7_final').get(roomId).get('incidents').get(id).once((latestIncident: any) => {
+              if (!latestIncident) return;
+              const logs = JSON.parse(latestIncident.logs || '[]');
+              // Only respond if no one else (Human or AI) has logged anything beyond the initial creation
+              if (logs.length <= 1) {
+                handleAutoDispatchBroadcast(id, latestIncident.callType, latestIncident.location);
+              }
+            });
+          }, 4000);
         }
 
         if (!data) {
@@ -239,20 +245,25 @@ const App: React.FC = () => {
 
   const handleAutoDispatchBroadcast = async (incId: string, call: string, loc: string) => {
     const message = await generateAutoDispatch(call, loc);
-    const incident = incidentsMap[incId];
-    if (!incident) return;
+    const incidentRef = gun.get('nexus_cad_v7_final').get(roomId).get('incidents').get(incId);
     
-    let logs: IncidentLog[] = [];
-    try { logs = JSON.parse(incident.logs); } catch(e) { logs = []; }
-    
-    const newLog: IncidentLog = {
-      id: `ai_${Date.now()}`,
-      timestamp: new Date().toLocaleTimeString(),
-      sender: 'V-DISPATCH',
-      message: message
-    };
+    incidentRef.once((incident: any) => {
+      if (!incident) return;
+      let logs: IncidentLog[] = [];
+      try { logs = JSON.parse(incident.logs); } catch(e) { logs = []; }
+      
+      // Secondary check to ensure no racing node already dispatched
+      if (logs.some(l => l.sender === 'V-DISPATCH')) return;
 
-    gun.get('nexus_cad_v7_final').get(roomId).get('incidents').get(incId).get('logs').put(JSON.stringify([...logs, newLog]));
+      const newLog: IncidentLog = {
+        id: `ai_${Date.now()}`,
+        timestamp: new Date().toLocaleTimeString(),
+        sender: 'V-DISPATCH',
+        message: message
+      };
+
+      incidentRef.get('logs').put(JSON.stringify([...logs, newLog]));
+    });
   };
 
   const handleLoginDispatch = () => {
@@ -310,12 +321,12 @@ const App: React.FC = () => {
   };
 
   const createIncident = async () => {
-    if (!newLocation || session?.role !== 'DISPATCH') return;
+    if (!newLocation) return;
     const id = `INC-${Math.floor(Math.random() * 9000) + 1000}`;
     const initialLogs: IncidentLog[] = [{ 
       id: '1', 
       timestamp: new Date().toLocaleTimeString(), 
-      sender: 'DISPATCH', 
+      sender: session?.role === 'DISPATCH' ? 'DISPATCH' : (session?.callsign || 'UNIT'), 
       message: `Incident Initialized: ${newCallType}` 
     }];
 
@@ -342,7 +353,6 @@ const App: React.FC = () => {
       return;
     }
 
-    // Command Console Integration
     if (logInput.startsWith('/') && session?.role === 'DISPATCH') {
       sendErlcCommand(logInput);
       setLogInput('');
@@ -376,7 +386,7 @@ const App: React.FC = () => {
   };
 
   const handleCloseIncident = () => {
-    if (!activeIncidentId || session?.role !== 'DISPATCH') return;
+    if (!activeIncidentId) return;
     gun.get('nexus_cad_v7_final').get(roomId).get('incidents').get(activeIncidentId).put(null);
     setActiveIncidentId(null);
     if (isMobileMode) setMobileTab('INCIDENTS');
@@ -409,7 +419,7 @@ const App: React.FC = () => {
                 <input type="text" placeholder="Callsign" value={onboardingData.callsign} onChange={(e) => setOnboardingData(p => ({...p, callsign: e.target.value}))} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 uppercase font-mono outline-none focus:ring-2 focus:ring-emerald-500 text-sm shadow-inner" />
                 <div className="grid grid-cols-3 gap-2">
                     {[UnitType.POLICE, UnitType.FIRE, UnitType.EMS].map(t => (
-                        <button key={t} onClick={() => setOnboardingData(p => ({...p, type: t}))} className={`py-3 rounded-xl border text-[9px] font-black transition-all ${onboardingData.type === t ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-slate-950 border-slate-800 text-slate-600'}`}>{t}</button>
+                        <button key={t} onClick={() => setOnboardingData(p => ({...p, t}))} className={`py-3 rounded-xl border text-[9px] font-black transition-all ${onboardingData.type === t ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-slate-950 border-slate-800 text-slate-600'}`}>{t}</button>
                     ))}
                 </div>
               </div>
@@ -448,15 +458,15 @@ const App: React.FC = () => {
           {erlcStatus.online && (
             <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded-full">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-              <span className="text-[9px] font-black text-emerald-400 tracking-tighter">ER:LC SERVER LINKED ({erlcStatus.players} PLYRS)</span>
+              <span className="text-[9px] font-black text-emerald-400 tracking-tighter uppercase">Live Link: {erlcStatus.players} PLYRS</span>
             </div>
           )}
         </div>
         <div className="flex items-center gap-2 md:gap-4">
-          <button title="ER:LC Settings" onClick={() => setIsAutomationOpen(true)} className={`p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 transition-all ${erlcStatus.online ? 'text-emerald-400 border-emerald-500/30' : 'text-slate-500'}`}><Icons.Cpu /></button>
+          <button title="ER:LC Integration" onClick={() => setIsAutomationOpen(true)} className={`p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 transition-all ${erlcStatus.online ? 'text-emerald-400 border-emerald-500/30' : 'text-slate-500'}`}><Icons.Cpu /></button>
           <button title="Tactical Sync" onClick={handleManualRefresh} className={`p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 text-slate-500 transition-all ${isRefreshing ? 'animate-spin text-blue-500' : ''}`}><Icons.Refresh /></button>
           <button onClick={() => setIsMobileMode(!isMobileMode)} className="p-3 rounded-xl border border-slate-800 hover:border-blue-500/50 text-slate-500 transition-all">{isMobileMode ? <Icons.Monitor /> : <Icons.Smartphone />}</button>
-          {session.role === 'DISPATCH' && <button onClick={() => setIsCreatingCall(true)} className="bg-blue-600 hover:bg-blue-500 px-4 md:px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg">New Broadcast</button>}
+          <button onClick={() => setIsCreatingCall(true)} className="bg-blue-600 hover:bg-blue-500 px-4 md:px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg">New Broadcast</button>
           <button onClick={handleSignOut} className="text-[10px] font-black uppercase text-slate-600 hover:text-red-500 px-2 transition-colors">Sign Out</button>
         </div>
       </header>
@@ -475,7 +485,7 @@ const App: React.FC = () => {
           <div className="p-6 border-b border-slate-800 flex items-center justify-between"><h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Personnel Online</h2></div>
           <div className="p-4 space-y-3">
             {units.map(unit => {
-              const inGame = erlcStatus.roblox.some(p => p.PermissionName === unit.robloxUser);
+              const inGame = erlcStatus.roster.some(p => p.PermissionName === unit.robloxUser);
               return (
               <div key={unit.id} className={`p-5 rounded-3xl border transition-all ${unit.name === session.callsign ? 'bg-emerald-500/5 border-emerald-500/40 shadow-xl' : 'bg-slate-900/40 border-slate-800/50 hover:bg-slate-900/60'}`}>
                 <div className="flex justify-between mb-2 items-center">
@@ -497,7 +507,7 @@ const App: React.FC = () => {
             <>
               <div className="p-6 border-y border-slate-800 bg-slate-950/60 flex items-center justify-between mt-4">
                 <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Server Roster</h2>
-                <span className="text-[10px] font-mono text-emerald-500">{erlcStatus.players} ACTIVE</span>
+                <span className="text-[10px] font-mono text-emerald-500">{erlcStatus.players} PLYRS</span>
               </div>
               <div className="p-4 space-y-2">
                 {erlcStatus.roster.map((player, idx) => (
@@ -543,7 +553,7 @@ const App: React.FC = () => {
                       <h2 className="text-3xl md:text-5xl font-black text-white uppercase tracking-tighter mb-2 md:mb-4 drop-shadow-2xl">{activeIncident.callType}</h2>
                       <div className="text-[11px] text-slate-500 uppercase tracking-[0.3em] font-black italic">Target: {activeIncident.location}</div>
                     </div>
-                    {session.role === 'DISPATCH' && <button onClick={handleCloseIncident} className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-6 md:px-10 py-3 md:py-4 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all border border-red-500/20 shadow-xl">Purge</button>}
+                    <button onClick={handleCloseIncident} className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-6 md:px-10 py-3 md:py-4 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all border border-red-500/20 shadow-xl">Purge</button>
                 </div>
                 <div className="flex-1 flex flex-col bg-slate-950/40 rounded-[2rem] md:rounded-[3rem] border border-slate-800/40 overflow-hidden shadow-3xl backdrop-blur-xl" onClick={() => logInputRef.current?.focus()}>
                     <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-4 md:space-y-6 font-mono text-sm custom-scrollbar">
@@ -581,21 +591,21 @@ const App: React.FC = () => {
         </nav>
       )}
 
-      {/* ER:LC Tactical Settings Overlay */}
+      {/* ER:LC Integration Settings */}
       {isAutomationOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-4 md:p-8 overflow-y-auto">
           <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-8 md:p-12 w-full max-w-xl space-y-6 animate-in zoom-in-95 shadow-3xl">
              <div className="text-center">
-                <h3 className="text-2xl font-black uppercase tracking-widest text-white mb-2">ER:LC API Configuration</h3>
-                <p className="text-[10px] text-slate-500 font-mono italic">Mimicking Sonoran Live-Sync Integration</p>
+                <h3 className="text-2xl font-black uppercase tracking-widest text-white mb-2">ER:LC API Integration</h3>
+                <p className="text-[10px] text-slate-500 font-mono italic">Official Community Link System</p>
              </div>
              
              <div className="space-y-4">
                 <div className="p-6 bg-slate-950 border border-slate-800 rounded-3xl">
-                   <div className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-3">Server Secret Key</div>
+                   <div className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-3">Community Server Key</div>
                    <input 
                      type="password" 
-                     placeholder="SERVER-KEY" 
+                     placeholder="SERVER-SECRET-KEY" 
                      value={erlcApiKey} 
                      onChange={(e) => setErlcApiKey(e.target.value)}
                      className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-4 font-mono text-xs text-white outline-none focus:ring-2 focus:ring-blue-500"
@@ -605,8 +615,8 @@ const App: React.FC = () => {
                 <div className="grid grid-cols-1 gap-4">
                   <div className="flex items-center justify-between p-6 bg-slate-950 border border-slate-800 rounded-3xl">
                      <div>
-                       <div className="font-black text-xs uppercase text-white">Live Call Sync</div>
-                       <div className="text-[9px] text-slate-500 italic mt-1">Automatic incident logging from game feed.</div>
+                       <div className="font-black text-xs uppercase text-white">Live Call Ingestion</div>
+                       <div className="text-[9px] text-slate-500 italic mt-1">Automatically pull active game calls into queue.</div>
                      </div>
                      <button onClick={() => setAutoCallsEnabled(!autoCallsEnabled)} className={`w-14 h-8 rounded-full transition-all relative ${autoCallsEnabled ? 'bg-emerald-600' : 'bg-slate-800'}`}>
                        <div className={`absolute top-1 w-6 h-6 rounded-full bg-white transition-all ${autoCallsEnabled ? 'left-7' : 'left-1'}`}></div>
@@ -615,25 +625,17 @@ const App: React.FC = () => {
 
                   <div className="flex items-center justify-between p-6 bg-slate-950 border border-slate-800 rounded-3xl">
                      <div>
-                       <div className="font-black text-xs uppercase text-white">AI Auto-Broadcast</div>
-                       <div className="text-[9px] text-slate-500 italic mt-1">Virtual dispatcher handles incoming API calls.</div>
+                       <div className="font-black text-xs uppercase text-white">AI Supervisor (Auto-Dispatch)</div>
+                       <div className="text-[9px] text-slate-500 italic mt-1">Virtual Dispatcher will handle frequency if idle.</div>
                      </div>
                      <button onClick={() => setAutoDispatchEnabled(!autoDispatchEnabled)} className={`w-14 h-8 rounded-full transition-all relative ${autoDispatchEnabled ? 'bg-blue-600' : 'bg-slate-800'}`}>
                        <div className={`absolute top-1 w-6 h-6 rounded-full bg-white transition-all ${autoDispatchEnabled ? 'left-7' : 'left-1'}`}></div>
                      </button>
                   </div>
                 </div>
-
-                <div className="p-6 bg-slate-950/40 border border-slate-800 rounded-3xl">
-                   <div className="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-3">Community Link Data</div>
-                   <div className="grid grid-cols-2 gap-4 text-[10px] font-mono">
-                      <div>STATUS: <span className={erlcStatus.online ? 'text-emerald-500' : 'text-red-500'}>{erlcStatus.online ? 'ONLINE' : 'OFFLINE'}</span></div>
-                      <div>PLAYERS: <span className="text-white">{erlcStatus.players}</span></div>
-                   </div>
-                </div>
              </div>
              
-             <button onClick={() => setIsAutomationOpen(false)} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all shadow-xl">Save & Sync</button>
+             <button onClick={() => setIsAutomationOpen(false)} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all shadow-xl">Apply Uplink</button>
           </div>
         </div>
       )}
@@ -642,12 +644,12 @@ const App: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-4 md:p-8">
           <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-8 md:p-12 w-full max-w-2xl space-y-8 animate-in zoom-in-95 shadow-3xl max-h-[90vh] overflow-y-auto custom-scrollbar">
              <div className="grid md:grid-cols-2 gap-6 md:gap-8">
-                <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Incident Category</label><select value={newCallType} onChange={(e) => setNewCallType(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-5 font-black text-white outline-none appearance-none cursor-pointer shadow-inner">{CALL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
-                <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Priority Code</label><div className="grid grid-cols-2 gap-2">{Object.values(Priority).map(p => <button key={p} onClick={() => setNewPriority(p)} className={`py-3 md:py-4 rounded-xl border text-[10px] font-black uppercase transition-all tracking-tighter ${newPriority === p ? 'bg-blue-600 text-white shadow-lg border-blue-400' : 'bg-slate-950 text-slate-700 border-slate-800'}`}>{p}</button>)}</div></div>
+                <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Call Category</label><select value={newCallType} onChange={(e) => setNewCallType(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-5 font-black text-white outline-none appearance-none cursor-pointer shadow-inner">{CALL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
+                <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Response Code</label><div className="grid grid-cols-2 gap-2">{Object.values(Priority).map(p => <button key={p} onClick={() => setNewPriority(p)} className={`py-3 md:py-4 rounded-xl border text-[10px] font-black uppercase transition-all tracking-tighter ${newPriority === p ? 'bg-blue-600 text-white shadow-lg border-blue-400' : 'bg-slate-950 text-slate-700 border-slate-800'}`}>{p}</button>)}</div></div>
              </div>
              <div className="space-y-4">
-                <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Coordinates</label>
-                <input type="text" placeholder="GRID / ZONE / STREET" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} list="loc-suggestions" className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-6 font-black outline-none focus:ring-2 focus:ring-blue-500 text-white shadow-inner transition-all placeholder:text-slate-800" />
+                <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Location Coordinates</label>
+                <input type="text" placeholder="STREET / POI / POSTAL" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} list="loc-suggestions" className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-6 font-black outline-none focus:ring-2 focus:ring-blue-500 text-white shadow-inner transition-all placeholder:text-slate-800" />
                 <datalist id="loc-suggestions">{ERLC_LOCATIONS.map(l => <option key={l} value={l} />)}</datalist>
              </div>
              <div className="flex gap-4 md:gap-6 pt-4">
@@ -662,12 +664,12 @@ const App: React.FC = () => {
         <div className="flex gap-4 md:gap-10 items-center">
           <div className="flex items-center gap-2 md:gap-3">
              <div key={lastSyncTime} className={`w-2 h-2 rounded-full ${erlcStatus.online ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-slate-800'} animate-pulse`}></div>
-             SYNC: {erlcStatus.online ? 'STABLE (ER:LC LINKED)' : 'LOCAL_ONLY'}
+             SYNC_STATUS: {erlcStatus.online ? 'ER:LC_CONNECTED' : 'STANDBY_LOCAL'}
           </div>
-          <div className="hidden sm:flex items-center gap-3 text-slate-800 italic uppercase">FREQ: {roomId}</div>
+          <div className="hidden sm:flex items-center gap-3 text-slate-800 italic uppercase">FREQ_ID: {roomId}</div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="text-slate-800 font-black hidden xs:block uppercase">Nexus v7.8.2 // Official Sonoran Sync Engine</div>
+          <div className="text-slate-800 font-black hidden xs:block uppercase">Nexus v8.1.0 // Sonoran-Sync-Engine // ROBLOX_LINKED</div>
         </div>
       </footer>
     </div>
