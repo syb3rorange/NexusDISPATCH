@@ -22,9 +22,8 @@ export enum Priority {
 
 export interface UserSession {
   role: 'DISPATCH' | 'UNIT';
-  username?: string; // Operator ID for Dispatch
-  robloxUsername?: string; // Roblox for Unit
-  callsign?: string; // Callsign for Unit
+  username?: string;
+  callsign?: string;
   unitType?: UnitType;
 }
 
@@ -35,7 +34,6 @@ export interface Unit {
   status: UnitStatus;
   robloxUser?: string;
   lastUpdated: string;
-  assignedIncidentId?: string | null;
 }
 
 export interface IncidentLog {
@@ -51,7 +49,7 @@ export interface Incident {
   location: string;
   priority: Priority;
   status: 'ACTIVE' | 'CLOSED';
-  assignedUnits: string; // JSON stringified array of unit IDs (e.g., ["1A-10", "1A-12"])
+  assignedUnits: string; // JSON stringified array of unit IDs
   logs: string; // JSON stringified array of logs
   startTime: string;
 }

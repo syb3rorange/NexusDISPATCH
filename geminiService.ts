@@ -1,3 +1,1 @@
-
-// This file has been removed to simplify the application.
-export {};
+// File removed by user request.

@@ -87,7 +87,7 @@ export const STATUS_COLORS: Record<string, string> = {
   EN_ROUTE: 'bg-blue-500/20 text-blue-400 border-blue-500/50',
   ON_SCENE: 'bg-amber-500/20 text-amber-400 border-amber-500/50',
   BUSY: 'bg-purple-500/20 text-purple-400 border-purple-500/50',
-  OUT_OF_SERVICE: 'bg-red-500/20 text-red-500 border-red-500/50',
+  OUT_OF_SERVICE: 'bg-slate-500/20 text-slate-400 border-slate-500/50',
 };
 
 export const PRIORITY_COLORS: Record<string, string> = {

@@ -2,7 +2,7 @@
 {
   "name": "nexus-dispatch-cad",
   "private": true,
-  "version": "1.0.0",
+  "version": "5.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "gun": "0.2020.1239",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
