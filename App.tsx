@@ -51,7 +51,6 @@ const App: React.FC = () => {
   const [logInput, setLogInput] = useState('');
   const [isMobileMode, setIsMobileMode] = useState(window.innerWidth < 1024);
   const [lastSyncTime, setLastSyncTime] = useState<number>(Date.now());
-  const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(() => {
@@ -131,19 +130,10 @@ const App: React.FC = () => {
     root.get('incidents').map().on((data: any, id: string) => {
       setLastSyncTime(Date.now());
       setIncidentsMap(prev => {
-        const isNew = !prev[id] && data?.status === 'ACTIVE';
         if (!data) {
           const newState = { ...prev };
           delete newState[id];
           return newState;
-        }
-        if (session?.role === 'UNIT' && isNew) {
-          setAlertMessage(`🚨 NEW CALL: ${data.callType} @ ${data.location}`);
-          setTimeout(() => setAlertMessage(null), 5000);
-          if (!activeIncidentId && (data.priority === Priority.EMERGENCY || data.priority === Priority.HIGH)) {
-            setActiveIncidentId(id);
-            if (isMobileMode) setMobileTab('ACTIVE');
-          }
         }
         return { ...prev, [id]: data };
       });
@@ -155,7 +145,6 @@ const App: React.FC = () => {
     };
   }, [roomId, session?.role, activeIncidentId, isMobileMode]);
 
-  // --- AUTO REFRESH FIX WITH PAUSE ---
   const handleManualRefresh = useCallback(() => {
     setIsRefreshing(true);
     setLastSyncTime(Date.now());
@@ -166,7 +155,6 @@ const App: React.FC = () => {
 
   useEffect(() => {
     let timer: number;
-    // Condition back to pausing when an activeIncidentId is present
     if (autoRefreshEnabled && !activeIncidentId) {
       timer = window.setInterval(() => {
         setTimeLeft(prev => {
@@ -191,7 +179,6 @@ const App: React.FC = () => {
     localStorage.setItem(STORAGE_KEY_REFRESH_INTERVAL, refreshInterval.toString());
     setTimeLeft(refreshInterval);
   }, [refreshInterval]);
-  // --- END AUTO REFRESH FIX ---
 
   const handleLoginDispatch = () => {
     if (hasPersistentDispatch || dispatchPass === '10-4') {
@@ -383,11 +370,19 @@ const App: React.FC = () => {
       } catch(e) {}
     }
 
+    // Determine departmental color
+    const deptBorderColor = 
+      unit.type === UnitType.POLICE ? 'border-blue-500/60' : 
+      unit.type === UnitType.FIRE ? 'border-red-500/60' : 
+      'border-yellow-500/60';
+
     return (
-      <div key={unit.id} className={`p-4 rounded-3xl border transition-all ${unit.name === session?.callsign ? 'bg-emerald-500/5 border-emerald-500/40 shadow-xl' : 'bg-slate-900/40 border-slate-800/50 hover:bg-slate-900/60'} ${isAssignedToThis ? 'border-l-4 border-l-blue-500' : ''}`}>
+      <div key={unit.id} className={`p-4 rounded-3xl border-2 transition-all ${deptBorderColor} ${unit.name === session?.callsign ? 'bg-slate-800/20 shadow-xl' : 'bg-slate-900/40 hover:bg-slate-900/60'} ${isAssignedToThis ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-slate-950' : ''}`}>
           <div className="flex justify-between mb-3 items-center">
             <div className="flex items-center gap-2">
-              <div className="text-slate-500">{unit.type === UnitType.POLICE ? <Icons.Police /> : unit.type === UnitType.FIRE ? <Icons.Fire /> : <Icons.EMS />}</div>
+              <div className={unit.type === UnitType.POLICE ? 'text-blue-400' : unit.type === UnitType.FIRE ? 'text-red-400' : 'text-yellow-400'}>
+                {unit.type === UnitType.POLICE ? <Icons.Police /> : unit.type === UnitType.FIRE ? <Icons.Fire /> : <Icons.DOT />}
+              </div>
               <span className="font-mono font-black text-sm tracking-tight">{unit.name}</span>
             </div>
             <div className={`text-[8px] px-2 py-0.5 rounded-lg border font-black ${STATUS_COLORS[unit.status]}`}>{unit.status.replace(/_/g, ' ')}</div>
@@ -430,7 +425,7 @@ const App: React.FC = () => {
                 <input type="text" placeholder="Roblox Name" value={onboardingData.roblox} onChange={(e) => setOnboardingData(p => ({...p, roblox: e.target.value}))} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 font-bold outline-none focus:ring-2 focus:ring-emerald-500 text-sm shadow-inner" />
                 <input type="text" placeholder="Callsign" value={onboardingData.callsign} onChange={(e) => setOnboardingData(p => ({...p, callsign: e.target.value}))} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 uppercase font-mono outline-none focus:ring-2 focus:ring-emerald-500 text-sm shadow-inner" />
                 <div className="grid grid-cols-3 gap-2">
-                    {[UnitType.POLICE, UnitType.FIRE, UnitType.EMS].map(t => (
+                    {[UnitType.POLICE, UnitType.FIRE, UnitType.DOT].map(t => (
                         <button key={t} onClick={() => setOnboardingData(p => ({...p, type: t}))} className={`py-3 rounded-xl border text-[9px] font-black transition-all ${onboardingData.type === t ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-slate-950 border-slate-800 text-slate-600'}`}>{t}</button>
                     ))}
                 </div>
@@ -566,11 +561,12 @@ const App: React.FC = () => {
                         return assigned.map(uid => {
                           const u = unitsMap[uid];
                           if (!u) return null;
+                          const iconColor = u.type === UnitType.POLICE ? 'text-blue-400' : u.type === UnitType.FIRE ? 'text-red-400' : 'text-yellow-400';
                           return (
-                            <div key={uid} className="bg-slate-950/60 border border-slate-800 p-4 rounded-2xl animate-in fade-in zoom-in-95">
+                            <div key={uid} className={`bg-slate-950/60 border-2 ${u.type === UnitType.POLICE ? 'border-blue-500/40' : u.type === UnitType.FIRE ? 'border-red-500/40' : 'border-yellow-500/40'} p-4 rounded-2xl animate-in fade-in zoom-in-95`}>
                                <div className="flex justify-between items-center mb-2">
                                   <div className="flex items-center gap-2">
-                                     <div className="text-blue-400">{u.type === UnitType.POLICE ? <Icons.Police /> : u.type === UnitType.FIRE ? <Icons.Fire /> : <Icons.EMS />}</div>
+                                     <div className={iconColor}>{u.type === UnitType.POLICE ? <Icons.Police /> : u.type === UnitType.FIRE ? <Icons.Fire /> : <Icons.DOT />}</div>
                                      <span className="font-mono font-black text-xs text-white">{u.name}</span>
                                   </div>
                                   {session?.role === 'DISPATCH' && <button onClick={() => handleDetachUnit(uid)} className="text-slate-700 hover:text-red-500"><Icons.X /></button>}
@@ -601,9 +597,11 @@ const App: React.FC = () => {
                     try { assigned = JSON.parse(incidentsMap[activeIncidentId || '']?.assignedUnits || '[]'); } catch(e) {}
                     return !assigned.includes(u.id);
                  }).map(u => (
-                   <button key={u.id} onClick={() => handleAssignUnit(u.id)} className="w-full bg-slate-950 hover:bg-slate-800 border border-slate-800 p-4 rounded-2xl flex items-center justify-between transition-all group">
+                   <button key={u.id} onClick={() => handleAssignUnit(u.id)} className={`w-full bg-slate-950 hover:bg-slate-800 border-2 ${u.type === UnitType.POLICE ? 'border-blue-500/30' : u.type === UnitType.FIRE ? 'border-red-500/30' : 'border-yellow-500/30'} p-4 rounded-2xl flex items-center justify-between transition-all group`}>
                       <div className="flex items-center gap-4">
-                         <div className="text-slate-500 group-hover:text-blue-400">{u.type === UnitType.POLICE ? <Icons.Police /> : u.type === UnitType.FIRE ? <Icons.Fire /> : <Icons.EMS />}</div>
+                         <div className={u.type === UnitType.POLICE ? 'text-blue-500' : u.type === UnitType.FIRE ? 'text-red-500' : 'text-yellow-500'}>
+                            {u.type === UnitType.POLICE ? <Icons.Police /> : u.type === UnitType.FIRE ? <Icons.Fire /> : <Icons.DOT />}
+                         </div>
                          <div className="text-left">
                             <div className="font-black text-white text-sm">{u.name}</div>
                             <div className="text-[9px] text-slate-600 uppercase font-mono">{u.status} // {u.robloxUser}</div>
@@ -627,7 +625,7 @@ const App: React.FC = () => {
                  <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Unit Type</label>
                     <div className="grid grid-cols-3 gap-2">
-                        {[UnitType.POLICE, UnitType.FIRE, UnitType.EMS].map(t => (
+                        {[UnitType.POLICE, UnitType.FIRE, UnitType.DOT].map(t => (
                             <button key={t} onClick={() => setNewUnitData(p => ({...p, type: t}))} className={`py-3 rounded-xl border text-[9px] font-black transition-all ${newUnitData.type === t ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-slate-950 border-slate-800 text-slate-600'}`}>{t}</button>
                         ))}
                     </div>

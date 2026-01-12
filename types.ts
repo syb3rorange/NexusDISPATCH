@@ -10,7 +10,7 @@ export enum UnitStatus {
 export enum UnitType {
   POLICE = 'POLICE',
   FIRE = 'FIRE',
-  EMS = 'EMS'
+  DOT = 'DOT'
 }
 
 export enum Priority {
