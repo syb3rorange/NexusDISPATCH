@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Unit, Incident, UnitStatus, UnitType, Priority, IncidentLog, UserSession } from './types';
 import { CALL_TYPES, STATUS_COLORS, PRIORITY_COLORS, Icons, ERLC_LOCATIONS } from './constants';
 
@@ -8,8 +8,8 @@ const STORAGE_KEY_INCIDENTS = 'nexus_cad_data_incidents_';
 const STORAGE_KEY_SESSION = 'nexus_cad_auth_session';
 const STORAGE_KEY_ROOM_ID = 'nexus_cad_active_room';
 
-// SYNC_CHANNEL allows multiple tabs to talk to each other in real-time
-const SYNC_CHANNEL = new BroadcastChannel('nexus_cad_sync');
+// BroadcastChannel for cross-tab communication on the same browser/machine
+const SYNC_CHANNEL = new BroadcastChannel('nexus_cad_p2p_sync');
 
 const App: React.FC = () => {
   // 1. Core State
@@ -41,9 +41,15 @@ const App: React.FC = () => {
   const [robloxName, setRobloxName] = useState('');
   const [joinCodeInput, setJoinCodeInput] = useState('');
 
-  // 2. Synchronization & Persistence
+  // 2. Peer-to-Peer Sync Engine
   
-  // Handle Cross-Tab Sync
+  // Broadcast a message with the current room context
+  const broadcast = useCallback((type: string, payload: any) => {
+    if (!roomId) return;
+    SYNC_CHANNEL.postMessage({ type, payload, room: roomId, timestamp: Date.now() });
+  }, [roomId]);
+
+  // Handle incoming messages
   useEffect(() => {
     const handleSync = (event: MessageEvent) => {
       const { type, payload, room } = event.data;
@@ -52,30 +58,47 @@ const App: React.FC = () => {
       switch (type) {
         case 'SYNC_FULL_STATE':
           if (payload.units) setUnits(payload.units);
-          if (payload.incidents) setIncidents(payload.incidents);
+          if (payload.incidents) setIncidents(payload.incidents as Incident[]);
           break;
         case 'UPDATE_UNITS':
           setUnits(payload);
           break;
         case 'UPDATE_INCIDENTS':
-          setIncidents(payload);
+          setIncidents(payload as Incident[]);
           break;
-        case 'SYNC_REQUEST':
-          // Someone just joined, send them the current data
-          SYNC_CHANNEL.postMessage({ 
-            type: 'SYNC_FULL_STATE', 
-            room: roomId, 
-            payload: { units, incidents } 
-          });
+        case 'REPRO_REQUEST':
+          // Another tab is asking "who is here?", broadcast our current full state
+          broadcast('SYNC_FULL_STATE', { units, incidents });
           break;
       }
     };
 
     SYNC_CHANNEL.onmessage = handleSync;
     return () => { SYNC_CHANNEL.onmessage = null; };
-  }, [roomId, units, incidents]);
+  }, [roomId, units, incidents, broadcast]);
 
-  // Deep linking and Room Initializer
+  // Maintain "Self-Presence" for Units
+  // This ensures that if the state is overwritten by a sync, we put ourselves back in
+  useEffect(() => {
+    if (roomId && session?.role === 'UNIT' && session.callsign) {
+      const me = units.find(u => u.name === session.callsign);
+      if (!me) {
+        const newMe: Unit = {
+          id: `U-${Date.now()}`,
+          name: session.callsign!,
+          type: session.unitType!,
+          status: UnitStatus.AVAILABLE,
+          robloxUser: session.robloxUsername!,
+          lastUpdated: new Date().toISOString(),
+        };
+        const nextUnits = [...units, newMe];
+        setUnits(nextUnits);
+        broadcast('UPDATE_UNITS', nextUnits);
+      }
+    }
+  }, [units, roomId, session, broadcast]);
+
+  // Initial Room Setup
   useEffect(() => {
     if (roomId) {
       window.location.hash = roomId;
@@ -84,42 +107,19 @@ const App: React.FC = () => {
       const savedUnits = localStorage.getItem(STORAGE_KEY_UNITS + roomId);
       const savedIncidents = localStorage.getItem(STORAGE_KEY_INCIDENTS + roomId);
       
-      // Fix: Explicitly cast the parsed data to match our union types
-      const loadedUnits = (savedUnits ? JSON.parse(savedUnits) : []) as Unit[];
-      const loadedIncidents = (savedIncidents ? JSON.parse(savedIncidents) : []) as Incident[];
-      
-      setUnits(loadedUnits);
-      setIncidents(loadedIncidents);
+      if (savedUnits) setUnits(JSON.parse(savedUnits));
+      if (savedIncidents) setIncidents(JSON.parse(savedIncidents));
 
-      // Request latest state from other tabs immediately
-      SYNC_CHANNEL.postMessage({ type: 'SYNC_REQUEST', room: roomId });
-
-      // If I am a unit, ensure I am present in the list
-      if (session?.role === 'UNIT' && session.callsign) {
-        setUnits(prev => {
-          if (prev.find(u => u.name === session.callsign)) return prev;
-          const me: Unit = {
-            id: `U-${Date.now()}`,
-            name: session.callsign!,
-            type: session.unitType!,
-            status: UnitStatus.AVAILABLE,
-            robloxUser: session.robloxUsername!,
-            lastUpdated: new Date().toISOString(),
-          };
-          const next = [...prev, me];
-          SYNC_CHANNEL.postMessage({ type: 'UPDATE_UNITS', payload: next, room: roomId });
-          return next;
-        });
-      }
+      // Shout out to other tabs to get the most recent data
+      broadcast('REPRO_REQUEST', {});
     } else {
-      localStorage.removeItem(STORAGE_KEY_ROOM_ID);
       setUnits([]);
       setIncidents([]);
       window.location.hash = '';
     }
-  }, [roomId, session]);
+  }, [roomId, broadcast]);
 
-  // Save to Storage
+  // Local Storage Persistence
   useEffect(() => {
     if (roomId) {
       localStorage.setItem(STORAGE_KEY_UNITS + roomId, JSON.stringify(units));
@@ -127,7 +127,7 @@ const App: React.FC = () => {
     }
   }, [units, incidents, roomId]);
 
-  // Window Resize
+  // Resize Listener
   useEffect(() => {
     const handleResize = () => setIsMobileMode(window.innerWidth < 1024);
     window.addEventListener('resize', handleResize);
@@ -155,12 +155,11 @@ const App: React.FC = () => {
     }
   }, [units, activeIncident]);
 
-  // 3. Handlers
+  // 3. Action Handlers
   const handleManualRefresh = () => {
     setIsRefreshing(true);
-    // Request state from others and refresh local
-    SYNC_CHANNEL.postMessage({ type: 'SYNC_REQUEST', room: roomId });
-    setTimeout(() => setIsRefreshing(false), 1200);
+    broadcast('REPRO_REQUEST', {});
+    setTimeout(() => setIsRefreshing(false), 800);
   };
 
   const handleLogin = () => {
@@ -182,30 +181,11 @@ const App: React.FC = () => {
     if (session?.role !== 'DISPATCH') return;
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
     setRoomId(code);
-    setUnits([]);
-    setIncidents([]);
   };
 
   const joinServer = () => {
-    if (!joinCodeInput) return;
-    const code = joinCodeInput.toUpperCase();
-    setRoomId(code);
-  };
-
-  const deleteServer = () => {
-    if (!roomId) return;
-    if (confirm("Permanently wipe local data for this room?")) {
-      localStorage.removeItem(STORAGE_KEY_UNITS + roomId);
-      localStorage.removeItem(STORAGE_KEY_INCIDENTS + roomId);
-      setRoomId(null);
-    }
-  };
-
-  const handleSignOut = () => {
-    setSession(null);
-    setRoomId(null);
-    localStorage.removeItem(STORAGE_KEY_SESSION);
-    localStorage.removeItem(STORAGE_KEY_ROOM_ID);
+    if (!joinCodeInput || joinCodeInput.length !== 6) return;
+    setRoomId(joinCodeInput.toUpperCase());
   };
 
   const updateStatus = (status: UnitStatus) => {
@@ -214,35 +194,7 @@ const App: React.FC = () => {
       u.name === session.callsign ? { ...u, status, lastUpdated: new Date().toISOString() } : u
     );
     setUnits(nextUnits);
-    SYNC_CHANNEL.postMessage({ type: 'UPDATE_UNITS', payload: nextUnits, room: roomId });
-  };
-
-  const assignUnitToCall = (unitName: string, incidentId: string) => {
-    const nextIncidents = incidents.map(inc => {
-      if (inc.id === incidentId) {
-        let assigned: string[] = [];
-        try { assigned = JSON.parse(inc.assignedUnits); } catch { assigned = []; }
-        if (!assigned.includes(unitName)) assigned.push(unitName);
-        return { ...inc, assignedUnits: JSON.stringify(assigned) };
-      }
-      return inc;
-    });
-    setIncidents(nextIncidents);
-    SYNC_CHANNEL.postMessage({ type: 'UPDATE_INCIDENTS', payload: nextIncidents, room: roomId });
-  };
-
-  const unassignUnitFromCall = (unitName: string, incidentId: string) => {
-    const nextIncidents = incidents.map(inc => {
-      if (inc.id === incidentId) {
-        let assigned: string[] = [];
-        try { assigned = JSON.parse(inc.assignedUnits); } catch { assigned = []; }
-        assigned = assigned.filter(name => name !== unitName);
-        return { ...inc, assignedUnits: JSON.stringify(assigned) };
-      }
-      return inc;
-    });
-    setIncidents(nextIncidents);
-    SYNC_CHANNEL.postMessage({ type: 'UPDATE_INCIDENTS', payload: nextIncidents, room: roomId });
+    broadcast('UPDATE_UNITS', nextUnits);
   };
 
   const createIncident = (type: string, loc: string, priority: Priority) => {
@@ -254,12 +206,12 @@ const App: React.FC = () => {
       priority,
       status: 'ACTIVE',
       assignedUnits: JSON.stringify([]),
-      logs: JSON.stringify([{ id: '1', timestamp: new Date().toLocaleTimeString(), sender: 'SYSTEM', message: 'Dispatch Broadcast Initialized' }]),
+      logs: JSON.stringify([{ id: '1', timestamp: new Date().toLocaleTimeString(), sender: 'SYSTEM', message: 'CAD Broadcast Initiated' }]),
       startTime: new Date().toISOString(),
     };
     const nextIncidents = [...incidents, newInc];
     setIncidents(nextIncidents);
-    SYNC_CHANNEL.postMessage({ type: 'UPDATE_INCIDENTS', payload: nextIncidents, room: roomId });
+    broadcast('UPDATE_INCIDENTS', nextIncidents);
     setActiveIncidentId(id);
     setIsCreatingCall(false);
     if (isMobileMode) setMobileTab('ACTIVE');
@@ -281,7 +233,7 @@ const App: React.FC = () => {
       return inc;
     });
     setIncidents(nextIncidents);
-    SYNC_CHANNEL.postMessage({ type: 'UPDATE_INCIDENTS', payload: nextIncidents, room: roomId });
+    broadcast('UPDATE_INCIDENTS', nextIncidents);
     setLogInput('');
   };
 
@@ -291,27 +243,48 @@ const App: React.FC = () => {
       inc.id === activeIncidentId ? { ...inc, status: 'CLOSED' as const } : inc
     );
     setIncidents(nextIncidents);
-    SYNC_CHANNEL.postMessage({ type: 'UPDATE_INCIDENTS', payload: nextIncidents, room: roomId });
+    broadcast('UPDATE_INCIDENTS', nextIncidents);
     setActiveIncidentId(null);
     if (isMobileMode) setMobileTab('INCIDENTS');
   };
 
-  const copyRoomId = () => {
-    if (roomId) {
-      const url = `${window.location.origin}${window.location.pathname}#${roomId}`;
-      navigator.clipboard.writeText(url);
-      alert('Invite Link Copied!');
-    }
+  const assignUnitToCall = (unitName: string, incidentId: string) => {
+    const nextIncidents = incidents.map(inc => {
+      if (inc.id === incidentId) {
+        let assigned: string[] = [];
+        try { assigned = JSON.parse(inc.assignedUnits); } catch { assigned = []; }
+        if (!assigned.includes(unitName)) assigned.push(unitName);
+        return { ...inc, assignedUnits: JSON.stringify(assigned) };
+      }
+      return inc;
+    });
+    setIncidents(nextIncidents);
+    broadcast('UPDATE_INCIDENTS', nextIncidents);
   };
 
-  // 4. Render Views
+  const unassignUnitFromCall = (unitName: string, incidentId: string) => {
+    const nextIncidents = incidents.map(inc => {
+      if (inc.id === incidentId) {
+        let assigned: string[] = [];
+        try { assigned = JSON.parse(inc.assignedUnits); } catch { assigned = []; }
+        assigned = assigned.filter(name => name !== unitName);
+        return { ...inc, assignedUnits: JSON.stringify(assigned) };
+      }
+      return inc;
+    });
+    setIncidents(nextIncidents);
+    broadcast('UPDATE_INCIDENTS', nextIncidents);
+  };
 
+  // 4. View Rendering
+  
+  // Login View
   if (!session) {
     return (
       <div className="h-screen w-screen bg-[#020617] flex flex-col items-center justify-center p-6">
-        <div className="bg-slate-900 border border-slate-800 p-8 md:p-12 rounded-[3rem] w-full max-w-lg shadow-[0_0_50px_rgba(30,64,175,0.1)]">
+        <div className="bg-slate-900 border border-slate-800 p-8 md:p-12 rounded-[3rem] w-full max-w-lg shadow-2xl">
           <div className="flex justify-center mb-10">
-            <div className="bg-blue-600 p-5 rounded-3xl shadow-[0_0_20px_rgba(37,99,235,0.4)] animate-pulse"><Icons.Police /></div>
+            <div className="bg-blue-600 p-5 rounded-3xl shadow-xl animate-pulse"><Icons.Police /></div>
           </div>
           <h1 className="text-4xl font-black text-center tracking-tighter mb-12 uppercase italic">NEXUS<span className="text-blue-500">CAD</span></h1>
           <div className="space-y-8">
@@ -329,10 +302,10 @@ const App: React.FC = () => {
             {loginRole && (
               <div className="animate-in fade-in slide-in-from-top-4 space-y-4">
                 {loginRole !== 'DISPATCH' && (
-                  <input type="text" placeholder="Roblox Username" value={robloxName} onChange={(e) => setRobloxName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-6 font-bold text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-800 shadow-inner" />
+                  <input type="text" placeholder="Roblox Username" value={robloxName} onChange={(e) => setRobloxName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-6 font-bold text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-800" />
                 )}
-                <input type="text" placeholder={loginRole === 'DISPATCH' ? "Operator ID" : "Callsign (e.g. 1A-10)"} value={loginName} onChange={(e) => setLoginName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-6 font-bold text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-800 shadow-inner" />
-                <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-500 py-6 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-2xl active:scale-95 transition-all text-white">Enter System</button>
+                <input type="text" placeholder={loginRole === 'DISPATCH' ? "Operator ID" : "Callsign (e.g. 1A-10)"} value={loginName} onChange={(e) => setLoginName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-6 font-bold text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-800" />
+                <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-500 py-6 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-2xl active:scale-95 transition-all">Enter System</button>
               </div>
             )}
           </div>
@@ -341,6 +314,7 @@ const App: React.FC = () => {
     );
   }
 
+  // Room Picker View
   if (!roomId) {
     return (
       <div className="h-screen w-screen bg-[#020617] flex flex-col items-center justify-center p-6">
@@ -353,6 +327,7 @@ const App: React.FC = () => {
               <input 
                 type="text" 
                 placeholder="------" 
+                maxLength={6}
                 value={joinCodeInput} 
                 onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())} 
                 className="w-full bg-slate-950 border border-slate-800 rounded-3xl p-8 text-center text-6xl font-black tracking-[0.4em] outline-none focus:ring-2 focus:ring-blue-500 transition-all text-blue-500 placeholder:text-slate-900 shadow-inner" 
@@ -362,16 +337,17 @@ const App: React.FC = () => {
             {session.role === 'DISPATCH' && (
               <>
                 <div className="flex items-center gap-6 py-2"><div className="flex-1 h-px bg-slate-800"></div><span className="text-[10px] font-black text-slate-700 uppercase tracking-widest">OR</span><div className="flex-1 h-px bg-slate-800"></div></div>
-                <button onClick={createServer} className="w-full bg-slate-800 hover:bg-slate-700 py-6 rounded-3xl font-black text-xs uppercase tracking-widest transition-all border border-slate-700 shadow-lg">Generate New Room</button>
+                <button onClick={createServer} className="w-full bg-slate-800 hover:bg-slate-700 py-6 rounded-3xl font-black text-xs uppercase tracking-widest transition-all border border-slate-700">Generate New Room</button>
               </>
             )}
-            <button onClick={handleSignOut} className="text-[11px] font-black uppercase text-slate-600 hover:text-red-500 transition-colors">Terminate Session</button>
+            <button onClick={() => { setSession(null); localStorage.removeItem(STORAGE_KEY_SESSION); }} className="text-[11px] font-black uppercase text-slate-600 hover:text-red-500">Sign Out</button>
           </div>
         </div>
       </div>
     );
   }
 
+  // Main CAD View
   const isDispatch = session.role === 'DISPATCH';
   const roleColor = session.unitType === UnitType.FIRE ? 'text-red-500' : 'text-blue-500';
   const roleBg = session.unitType === UnitType.FIRE ? 'bg-red-600' : 'bg-blue-600';
@@ -385,7 +361,7 @@ const App: React.FC = () => {
           <div className="h-8 w-px bg-slate-800 mx-2"></div>
           
           <div 
-            onClick={copyRoomId} 
+            onClick={() => { navigator.clipboard.writeText(window.location.href); alert('Invite link copied!'); }} 
             className="bg-emerald-500/10 border-2 border-emerald-500/30 px-5 py-2.5 rounded-2xl flex items-center gap-4 cursor-pointer hover:bg-emerald-500/20 transition-all shadow-[0_0_20px_rgba(16,185,129,0.1)] active:scale-95 group"
           >
             <span className="text-[10px] font-black text-emerald-500/60 uppercase tracking-widest hidden lg:block">SESSION_ID:</span>
@@ -402,25 +378,24 @@ const App: React.FC = () => {
             <Icons.Refresh />
           </button>
           {isDispatch && (
-            <>
-              <button onClick={() => setIsCreatingCall(true)} className="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl transition-all">New Incident</button>
-              <button onClick={deleteServer} className="p-3 text-red-500 hover:bg-red-500/10 border border-slate-700 rounded-2xl transition-all"><Icons.Trash /></button>
-            </>
+            <button onClick={() => setIsCreatingCall(true)} className="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl transition-all">New Incident</button>
           )}
           <button onClick={() => setRoomId(null)} className="text-[11px] font-black uppercase text-slate-600 hover:text-white px-4 transition-colors">Disconnect</button>
         </div>
       </header>
 
       <div className="flex-1 flex overflow-hidden relative">
+        {/* Sidebar - Unit Roster */}
         <aside className={`${isMobileMode ? (mobileTab === 'UNITS' ? 'flex w-full' : 'hidden') : 'w-80 flex'} border-r border-slate-800/60 bg-slate-950/40 flex-col shrink-0 overflow-y-auto custom-scrollbar-v z-10`}>
           <div className="p-6 border-b border-slate-800 flex items-center justify-between sticky top-0 bg-[#020617]/90 backdrop-blur-md z-10">
             <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Personnel Roster</h2>
             <div className={`w-2 h-2 rounded-full animate-pulse ${myUnit?.status === UnitStatus.OUT_OF_SERVICE ? 'bg-red-500 shadow-[0_0_10px_red]' : 'bg-emerald-500 shadow-[0_0_10px_#10b981]'}`}></div>
           </div>
+          
           <div className="p-4 space-y-6">
             {!isDispatch && (
               <div className="space-y-3">
-                <h3 className="text-[9px] font-black text-slate-700 uppercase px-3 tracking-widest">Duty Status</h3>
+                <h3 className="text-[9px] font-black text-slate-700 uppercase px-3 tracking-widest">Update My Status</h3>
                 <div className="grid grid-cols-1 gap-2">
                   {Object.values(UnitStatus).map(s => (
                     <button key={s} onClick={() => updateStatus(s)} className={`w-full p-5 rounded-2xl border font-black text-[11px] uppercase tracking-widest transition-all text-left flex justify-between items-center ${myUnit?.status === s ? 'bg-blue-600 border-blue-400 text-white shadow-xl scale-[1.02]' : 'bg-slate-900 border-slate-800 text-slate-500 hover:bg-slate-800'}`}>
@@ -448,11 +423,15 @@ const App: React.FC = () => {
                             <span className="text-[9px] text-slate-500 italic uppercase">@{unit.robloxUser}</span>
                             <div className={`mt-2 inline-flex px-3 py-1 rounded-xl text-[9px] font-black uppercase ${colors.split(' ')[0]} ${colors.split(' ')[1]}`}>{unit.status.replace(/_/g, ' ')}</div>
                           </div>
-                          {isDispatch && <button onClick={() => {
-                            const next = units.filter(u => u.id !== unit.id);
-                            setUnits(next);
-                            SYNC_CHANNEL.postMessage({ type: 'UPDATE_UNITS', payload: next, room: roomId });
-                          }} className="opacity-0 group-hover:opacity-100 p-2.5 text-slate-600 hover:text-red-500 transition-all"><Icons.Trash /></button>}
+                          {isDispatch && (
+                            <button onClick={() => {
+                              const next = units.filter(u => u.id !== unit.id);
+                              setUnits(next);
+                              broadcast('UPDATE_UNITS', next);
+                            }} className="opacity-0 group-hover:opacity-100 p-2.5 text-slate-600 hover:text-red-500 transition-all">
+                              <Icons.Trash />
+                            </button>
+                          )}
                         </div>
                         {activeIncident && (isDispatch || unit.name === session.callsign) && (
                           <button onClick={() => isAssigned ? unassignUnitFromCall(unit.name, activeIncident.id) : assignUnitToCall(unit.name, activeIncident.id)} className={`w-full py-3 rounded-xl border-2 text-[10px] font-black uppercase transition-all ${isAssigned ? 'bg-red-500/10 border-red-500/30 text-red-500 hover:bg-red-600 hover:text-white' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500 hover:bg-emerald-600 hover:text-white'}`}>
@@ -468,7 +447,9 @@ const App: React.FC = () => {
           </div>
         </aside>
 
+        {/* Main Area */}
         <main className={`${isMobileMode ? (mobileTab === 'UNITS' ? 'hidden' : 'flex') : 'flex'} flex-1 flex-col bg-[#020617] overflow-hidden`}>
+          {/* Active Call Queue */}
           <div className={`${isMobileMode && mobileTab !== 'INCIDENTS' ? 'hidden' : 'flex'} h-52 shrink-0 border-b border-slate-800/60 p-8 flex gap-8 overflow-x-auto items-center custom-scrollbar`}>
             {incidents.filter(inc => inc.status === 'ACTIVE').map(incident => (
               <div key={incident.id} onClick={() => { setActiveIncidentId(incident.id); if (isMobileMode) setMobileTab('ACTIVE'); }} className={`w-96 shrink-0 p-8 rounded-[3rem] border-2 cursor-pointer transition-all ${activeIncidentId === incident.id ? 'bg-blue-900/5 border-blue-500 shadow-2xl scale-[1.03]' : 'bg-slate-900/30 border-slate-800/50 hover:bg-slate-900/40 hover:border-slate-700'}`}>
@@ -478,14 +459,12 @@ const App: React.FC = () => {
                 </div>
                 <div className="font-black text-lg truncate uppercase tracking-tight text-white">{incident.callType}</div>
                 <div className="text-xs text-slate-500 truncate italic mt-1 font-mono uppercase">LOC: {incident.location}</div>
-                <div className="mt-4 flex gap-2 overflow-hidden">
-                   {JSON.parse(incident.assignedUnits).length > 0 ? JSON.parse(incident.assignedUnits).map((u: string) => <span key={u} className="px-3 py-1 bg-slate-800 text-[9px] font-black rounded-lg text-slate-300">{u}</span>) : <span className="text-[9px] font-black text-red-500 uppercase animate-pulse">NO_UNITS_ATTACHED</span>}
-                </div>
               </div>
             ))}
             {incidents.filter(inc => inc.status === 'ACTIVE').length === 0 && <div className="flex-1 flex flex-col items-center justify-center opacity-10 uppercase font-black tracking-[0.8em] text-xs">Awaiting Incidents...</div>}
           </div>
 
+          {/* Active Call Details */}
           <div className={`${isMobileMode && mobileTab !== 'ACTIVE' ? 'hidden' : 'flex'} flex-1 flex-col overflow-hidden relative`}>
             {activeIncident ? (
               <div className="flex-1 flex flex-col p-6 md:p-12 overflow-hidden animate-in fade-in slide-in-from-bottom-6">
@@ -499,14 +478,14 @@ const App: React.FC = () => {
                 
                 <div className="flex-1 flex flex-col bg-slate-950/50 rounded-[3rem] border-2 border-slate-800/40 overflow-hidden shadow-3xl backdrop-blur-2xl">
                   <div className="px-8 py-5 bg-slate-900/40 border-b border-slate-800/50 flex items-center gap-5 overflow-x-auto no-scrollbar">
-                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em] whitespace-nowrap">UNITS_ON_FREQ:</span>
+                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em] whitespace-nowrap">RESPONSE_TEAM:</span>
                     <div className="flex gap-3">
                       {assignedUnitsToActive.length > 0 ? assignedUnitsToActive.map(au => (
                         <div key={au.id} className={`flex items-center gap-3 px-4 py-2 rounded-2xl border-2 ${STATUS_COLORS[au.status].split(' ')[2]} bg-slate-950/90 shadow-lg`}>
                            <div className={`w-2 h-2 rounded-full ${STATUS_COLORS[au.status].split(' ')[0]}`}></div>
                            <span className="text-xs font-black text-white">{au.name}</span>
                         </div>
-                      )) : <span className="text-[10px] font-black text-red-500/50 uppercase animate-pulse">Waiting for Units to Attach...</span>}
+                      )) : <span className="text-[10px] font-black text-red-500/50 uppercase animate-pulse">Awaiting Assignment...</span>}
                     </div>
                   </div>
                   
@@ -531,7 +510,7 @@ const App: React.FC = () => {
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center opacity-10 grayscale">
                 <div className="w-40 h-40 mb-12 bg-slate-900 rounded-[4rem] flex items-center justify-center border-2 border-slate-800 shadow-3xl"><Icons.Police /></div>
-                <div className="text-3xl font-black uppercase tracking-[0.8em] text-white">Monitoring...</div>
+                <div className="text-3xl font-black uppercase tracking-[0.8em] text-white">Monitoring HQ...</div>
               </div>
             )}
           </div>
@@ -553,9 +532,9 @@ const App: React.FC = () => {
       <footer className="h-12 bg-slate-950 border-t border-slate-900 flex items-center px-8 md:px-12 justify-between shrink-0 text-[10px] font-mono tracking-widest text-slate-800 uppercase font-black z-20">
         <div className="flex gap-12 items-center">
           <div className="flex items-center gap-3">NET_LINK: <span className="text-emerald-500 shadow-[0_0_10px_#10b98133]">{roomId}</span></div>
-          <div className="hidden xs:block text-slate-700">PERSISTENCE: {isDispatch ? 'HQ_ACTIVE' : 'FIELD_LINKED'}</div>
+          <div className="hidden xs:block text-slate-700">STATUS: {isDispatch ? 'DISPATCH_CONNECTED' : 'FIELD_LINKED'}</div>
         </div>
-        <div className="italic hidden sm:block text-slate-700 opacity-50">NEXUS CAD // CROSS_TAB_STATE_ENGINE // V2.5_STABLE</div>
+        <div className="italic hidden sm:block text-slate-700 opacity-50">NEXUS CAD // SYNC_REPAIRED // V2.6_STABLE</div>
       </footer>
     </div>
   );
@@ -566,7 +545,7 @@ const NewCallForm: React.FC<{ onCreate: (type: string, loc: string, p: Priority)
   const [loc, setLoc] = useState('');
   const [p, setP] = useState<Priority>(Priority.MEDIUM);
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-[4rem] p-10 md:p-16 w-full max-w-3xl space-y-10 shadow-[0_0_100px_rgba(0,0,0,0.8)] border-t-blue-600/20">
+    <div className="bg-slate-900 border border-slate-800 rounded-[4rem] p-10 md:p-16 w-full max-w-3xl space-y-10 shadow-[0_0_100px_rgba(0,0,0,0.8)]">
       <h3 className="text-3xl font-black uppercase text-center tracking-widest text-white italic">Create Incident</h3>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
         <div className="space-y-4">
