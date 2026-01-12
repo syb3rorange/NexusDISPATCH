@@ -17,6 +17,8 @@ const STORAGE_KEY_AUTO_REFRESH = 'nexus_cad_auto_refresh';
 const STORAGE_KEY_REFRESH_INTERVAL = 'nexus_cad_refresh_interval';
 const STORAGE_KEY_ACTIVE_INCIDENT = 'nexus_cad_active_incident_id';
 const STORAGE_KEY_MOBILE_TAB = 'nexus_cad_mobile_tab';
+const STORAGE_KEY_VIEW_MODE = 'nexus_cad_view_mode';
+const STORAGE_KEY_DRAFT_ONBOARDING = 'nexus_cad_draft_onboarding';
 
 const App: React.FC = () => {
   const [roomId] = useState<string>(() => {
@@ -30,7 +32,13 @@ const App: React.FC = () => {
   const [session, setSession] = useState<UserSession | null>(null);
   const [dispatchPass, setDispatchPass] = useState('');
   const [hasPersistentDispatch, setHasPersistentDispatch] = useState(false);
-  const [onboardingData, setOnboardingData] = useState({ roblox: '', callsign: '', type: UnitType.POLICE });
+  
+  // Persistent onboarding form data to survive the 5-min idle refresh
+  const [onboardingData, setOnboardingData] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_DRAFT_ONBOARDING);
+    return saved ? JSON.parse(saved) : { roblox: '', callsign: '', type: UnitType.POLICE };
+  });
+  
   const [savedProfile, setSavedProfile] = useState<{roblox: string, callsign: string, type: UnitType} | null>(null);
 
   const [unitsMap, setUnitsMap] = useState<Record<string, Unit>>({});
@@ -49,20 +57,93 @@ const App: React.FC = () => {
   const [newUnitData, setNewUnitData] = useState({ callsign: '', type: UnitType.POLICE });
   
   const [logInput, setLogInput] = useState('');
-  const [isMobileMode, setIsMobileMode] = useState(window.innerWidth < 1024);
   const [lastSyncTime, setLastSyncTime] = useState<number>(Date.now());
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // --- VIEW MODE LOGIC ---
+  const [viewMode, setViewMode] = useState<'AUTO' | 'MOBILE' | 'DESKTOP'>(() => {
+    return (localStorage.getItem(STORAGE_KEY_VIEW_MODE) as any) || 'AUTO';
+  });
+  const [screenWidth, setScreenWidth] = useState(window.innerWidth);
+
+  useEffect(() => {
+    const handleResize = () => setScreenWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_VIEW_MODE, viewMode);
+  }, [viewMode]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_DRAFT_ONBOARDING, JSON.stringify(onboardingData));
+  }, [onboardingData]);
+
+  const effectiveIsMobile = useMemo(() => {
+    if (viewMode === 'MOBILE') return true;
+    if (viewMode === 'DESKTOP') return false;
+    return screenWidth < 1024;
+  }, [viewMode, screenWidth]);
+
+  // --- REFRESH LOGIC ---
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(() => {
     const saved = localStorage.getItem(STORAGE_KEY_AUTO_REFRESH);
     return saved === null ? true : saved === 'true';
   });
+  
   const [refreshInterval, setRefreshInterval] = useState<number>(() => {
     const saved = localStorage.getItem(STORAGE_KEY_REFRESH_INTERVAL);
-    return saved ? parseInt(saved, 10) : 10;
+    // Default to 20 seconds for logged in users
+    return saved ? parseInt(saved, 10) : 20;
   });
-  const [timeLeft, setTimeLeft] = useState<number>(refreshInterval);
+
+  // Derived interval: 300s (5m) for login, user preference (20s default) for active
+  const currentInterval = useMemo(() => {
+    if (!session) return 300; 
+    return refreshInterval;   
+  }, [session, refreshInterval]);
+
+  const [timeLeft, setTimeLeft] = useState<number>(currentInterval);
   const [showRefreshSettings, setShowRefreshSettings] = useState(false);
+
+  // Restart timer when session state changes
+  useEffect(() => {
+    setTimeLeft(currentInterval);
+  }, [session, currentInterval]);
+
+  const handleManualRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    setLastSyncTime(Date.now());
+    setTimeout(() => {
+      window.location.reload();
+    }, 500);
+  }, []);
+
+  useEffect(() => {
+    let timer: number;
+    // We only pause when a unit is actively focused on an incident's details
+    if (autoRefreshEnabled && !activeIncidentId) {
+      timer = window.setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 1) {
+            handleManualRefresh();
+            return currentInterval;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [autoRefreshEnabled, currentInterval, handleManualRefresh, activeIncidentId]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_AUTO_REFRESH, autoRefreshEnabled.toString());
+  }, [autoRefreshEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_REFRESH_INTERVAL, refreshInterval.toString());
+  }, [refreshInterval]);
 
   const [newCallType, setNewCallType] = useState(CALL_TYPES[0]);
   const [newLocation, setNewLocation] = useState('');
@@ -97,10 +178,6 @@ const App: React.FC = () => {
       const data = JSON.parse(profile);
       setSession({ role: 'UNIT', username: data.roblox, callsign: data.callsign.toUpperCase(), unitType: data.type });
     }
-    
-    const handleResize = () => setIsMobileMode(window.innerWidth < 1024);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   useEffect(() => {
@@ -143,42 +220,7 @@ const App: React.FC = () => {
       root.get('units').off();
       root.get('incidents').off();
     };
-  }, [roomId, session?.role, activeIncidentId, isMobileMode]);
-
-  const handleManualRefresh = useCallback(() => {
-    setIsRefreshing(true);
-    setLastSyncTime(Date.now());
-    setTimeout(() => {
-      window.location.reload();
-    }, 500);
-  }, []);
-
-  useEffect(() => {
-    let timer: number;
-    if (autoRefreshEnabled && !activeIncidentId) {
-      timer = window.setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            handleManualRefresh();
-            return refreshInterval;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else {
-      setTimeLeft(refreshInterval);
-    }
-    return () => clearInterval(timer);
-  }, [autoRefreshEnabled, refreshInterval, handleManualRefresh, activeIncidentId]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_AUTO_REFRESH, autoRefreshEnabled.toString());
-  }, [autoRefreshEnabled]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_REFRESH_INTERVAL, refreshInterval.toString());
-    setTimeLeft(refreshInterval);
-  }, [refreshInterval]);
+  }, [roomId]);
 
   const handleLoginDispatch = () => {
     if (hasPersistentDispatch || dispatchPass === '10-4') {
@@ -195,6 +237,7 @@ const App: React.FC = () => {
     setSession({ role: 'UNIT', username: data.roblox, callsign, unitType: data.type });
     localStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(data));
     localStorage.setItem(STORAGE_KEY_SESSION_TYPE, 'UNIT');
+    localStorage.removeItem(STORAGE_KEY_DRAFT_ONBOARDING);
 
     const newUnit: Unit = {
       id: callsign,
@@ -274,7 +317,7 @@ const App: React.FC = () => {
     gun.get('nexus_cad_v7_final').get(roomId).get('incidents').get(id).put(newIncident);
     setActiveIncidentId(id);
     setIsCreatingCall(false);
-    if (isMobileMode) setMobileTab('ACTIVE');
+    if (effectiveIsMobile) setMobileTab('ACTIVE');
   };
 
   const handleAddLog = async () => {
@@ -341,7 +384,7 @@ const App: React.FC = () => {
 
   const handleMinimizeIncident = () => {
     setActiveIncidentId(null);
-    if (isMobileMode) setMobileTab('INCIDENTS');
+    if (effectiveIsMobile) setMobileTab('INCIDENTS');
   };
 
   const handlePurgeIncident = () => {
@@ -352,13 +395,21 @@ const App: React.FC = () => {
 
     gun.get('nexus_cad_v7_final').get(roomId).get('incidents').get(activeIncidentId).put(null);
     setActiveIncidentId(null);
-    if (isMobileMode) setMobileTab('INCIDENTS');
+    if (effectiveIsMobile) setMobileTab('INCIDENTS');
   };
 
   const removeUnit = (id: string) => {
     if (confirm(`Confirm removal of unit ${id} from roster?`)) {
         gun.get('nexus_cad_v7_final').get(roomId).get('units').get(id).put(null);
     }
+  };
+
+  const toggleViewMode = () => {
+    setViewMode(prev => {
+      if (prev === 'AUTO') return 'MOBILE';
+      if (prev === 'MOBILE') return 'DESKTOP';
+      return 'AUTO';
+    });
   };
 
   const renderUnitCard = (unit: Unit) => {
@@ -370,7 +421,6 @@ const App: React.FC = () => {
       } catch(e) {}
     }
 
-    // Determine departmental color
     const deptBorderColor = 
       unit.type === UnitType.POLICE ? 'border-blue-500/60' : 
       unit.type === UnitType.FIRE ? 'border-red-500/60' : 
@@ -403,6 +453,12 @@ const App: React.FC = () => {
   if (!session) {
     return (
       <div className="h-screen w-screen bg-[#020617] flex flex-col items-center justify-center p-4 text-slate-100 relative overflow-hidden">
+        {/* Sync Indicator for Login Screen - 5 Minute Idle Refresh */}
+        <div className="absolute top-4 right-4 flex items-center gap-2 bg-slate-950/60 p-2 rounded-xl border border-slate-800 z-50">
+           <div className={`w-2 h-2 rounded-full ${autoRefreshEnabled ? 'bg-blue-500 animate-pulse shadow-[0_0_8px_#3b82f6]' : 'bg-slate-700'}`}></div>
+           <span className="text-[9px] font-black font-mono text-slate-500">{autoRefreshEnabled ? `IDLE SYNC: ${Math.floor(timeLeft / 60)}m ${timeLeft % 60}s` : 'SYNC: OFF'}</span>
+        </div>
+
         <div className="z-10 w-full max-w-5xl flex flex-col items-center max-h-full overflow-y-auto py-10 px-4 custom-scrollbar">
           <div className="bg-blue-600 p-5 rounded-[2.5rem] shadow-2xl mb-8 border border-blue-400/30 shrink-0"><Icons.Police /></div>
           <h1 className="text-4xl md:text-6xl font-black tracking-widest mb-4 uppercase text-center shrink-0">NEXUS<span className="text-blue-500">CAD</span></h1>
@@ -464,6 +520,11 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center gap-2 md:gap-4 relative">
           <div className="flex items-center gap-1 bg-slate-950/40 border border-slate-800 rounded-xl p-1 pr-3">
+            <button title={`Current: ${viewMode} - Click to Cycle`} onClick={toggleViewMode} className="p-2 rounded-lg hover:bg-slate-800 text-slate-500 transition-all flex items-center gap-2">
+               {viewMode === 'DESKTOP' ? <Icons.Monitor /> : viewMode === 'MOBILE' ? <Icons.Smartphone /> : <div className="relative"><Icons.Monitor /><div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full"></div></div>}
+               <span className="text-[8px] font-black uppercase hidden lg:inline">{viewMode}</span>
+            </button>
+            <div className="w-px h-4 bg-slate-800 mx-1"></div>
             <button title="Manual Sync" onClick={handleManualRefresh} className={`p-2 rounded-lg hover:bg-slate-800 text-slate-500 transition-all ${isRefreshing ? 'animate-spin text-blue-500' : ''}`}><Icons.Refresh /></button>
             <div className="flex flex-col items-center justify-center min-w-[3.5rem]"><span className={`text-[9px] font-black font-mono leading-none ${activeIncidentId ? 'text-amber-500' : autoRefreshEnabled ? 'text-blue-400' : 'text-slate-700'}`}>{activeIncidentId ? 'PAUSED' : autoRefreshEnabled ? `${timeLeft}s` : '--'}</span></div>
             <button onClick={() => setShowRefreshSettings(!showRefreshSettings)} className={`p-2 rounded-lg hover:bg-slate-800 transition-all ${showRefreshSettings ? 'text-blue-500' : 'text-slate-500'}`} title="Auto-Refresh Settings"><Icons.Cpu /></button>
@@ -484,7 +545,7 @@ const App: React.FC = () => {
       </header>
       
       <div className="flex-1 flex overflow-hidden">
-        <aside className={`${isMobileMode ? (mobileTab === 'UNITS' ? 'flex w-full' : 'hidden') : 'w-80 flex'} border-r border-slate-800/60 bg-slate-950/40 flex-col shrink-0 overflow-hidden`}>
+        <aside className={`${effectiveIsMobile ? (mobileTab === 'UNITS' ? 'flex w-full' : 'hidden') : 'w-80 flex'} border-r border-slate-800/60 bg-slate-950/40 flex-col shrink-0 overflow-hidden`}>
           <div className="p-6 border-b border-slate-800 flex items-center justify-between">
             <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Node Roster</h2>
             {session.role === 'DISPATCH' && <button onClick={() => setIsAddingUnit(true)} className="bg-slate-800 hover:bg-slate-700 p-2 rounded-lg transition-all text-slate-300"><Icons.Plus /></button>}
@@ -505,10 +566,10 @@ const App: React.FC = () => {
           </div>
         </aside>
 
-        <section className="flex-1 flex flex-col bg-[#020617] overflow-hidden">
-          <div className="h-44 shrink-0 border-b border-slate-800/60 p-6 gap-6 overflow-x-auto items-center custom-scrollbar flex">
+        <section className={`flex-1 flex flex-col bg-[#020617] overflow-hidden ${effectiveIsMobile && mobileTab !== 'INCIDENTS' && mobileTab !== 'ACTIVE' ? 'hidden' : 'flex'}`}>
+          <div className={`h-44 shrink-0 border-b border-slate-800/60 p-6 gap-6 overflow-x-auto items-center custom-scrollbar flex ${effectiveIsMobile && mobileTab !== 'INCIDENTS' ? 'hidden' : 'flex'}`}>
             {incidents.map(incident => (
-              <div key={incident.id} onClick={() => { setActiveIncidentId(incident.id); if (isMobileMode) setMobileTab('ACTIVE'); }} className={`w-80 shrink-0 p-6 rounded-[2.5rem] border cursor-pointer transition-all relative ${activeIncidentId === incident.id ? 'bg-blue-900/5 border-blue-500 shadow-2xl scale-[1.02]' : 'bg-slate-900/30 border-slate-800/50 hover:bg-slate-900/40 hover:border-slate-700'}`}>
+              <div key={incident.id} onClick={() => { setActiveIncidentId(incident.id); if (effectiveIsMobile) setMobileTab('ACTIVE'); }} className={`w-80 shrink-0 p-6 rounded-[2.5rem] border cursor-pointer transition-all relative ${activeIncidentId === incident.id ? 'bg-blue-900/5 border-blue-500 shadow-2xl scale-[1.02]' : 'bg-slate-900/30 border-slate-800/50 hover:bg-slate-900/40 hover:border-slate-700'}`}>
                 <div className="flex justify-between items-start mb-4"><span className="text-[10px] font-mono font-bold text-slate-600">{incident.id}</span><div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div><span className={`text-[10px] uppercase font-black tracking-widest ${PRIORITY_COLORS[incident.priority]}`}>{incident.priority}</span></div></div>
                 <div className="font-black text-sm truncate uppercase tracking-wide">{incident.callType}</div>
                 <div className="text-[11px] text-slate-500 truncate mb-5 italic">Loc: {incident.location}</div>
@@ -521,40 +582,40 @@ const App: React.FC = () => {
             {activeIncidentId && incidentsMap[activeIncidentId] ? (
               <div className="flex-1 flex overflow-hidden animate-in fade-in slide-in-from-bottom-2">
                 <div className="flex-1 flex flex-col p-4 md:p-8 overflow-hidden">
-                  <div className="flex justify-between items-start mb-6">
-                    <div>
-                      <h2 className="text-3xl md:text-5xl font-black text-white uppercase tracking-tighter mb-2">{incidentsMap[activeIncidentId].callType}</h2>
+                  <div className="flex justify-between items-start mb-6 shrink-0">
+                    <div className="max-w-[70%]">
+                      <h2 className="text-2xl md:text-5xl font-black text-white uppercase tracking-tighter mb-2 break-words leading-none">{incidentsMap[activeIncidentId].callType}</h2>
                       <div className="text-[11px] text-slate-500 uppercase tracking-[0.3em] font-black italic">Target: {incidentsMap[activeIncidentId].location}</div>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={handleMinimizeIncident} className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all border border-slate-700 flex items-center gap-2 shadow-xl"><Icons.X /> Hide</button>
-                      {session?.role === 'DISPATCH' && <button onClick={handlePurgeIncident} className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all border border-red-500/20 shadow-xl flex items-center gap-2"><Icons.Trash /> Purge</button>}
+                      <button onClick={handleMinimizeIncident} className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 md:px-4 py-2 md:py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all border border-slate-700 flex items-center gap-2 shadow-xl"><Icons.X /> Hide</button>
+                      {session?.role === 'DISPATCH' && <button onClick={handlePurgeIncident} className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-3 md:px-6 py-2 md:py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all border border-red-500/20 shadow-xl flex items-center gap-2"><Icons.Trash /> Purge</button>}
                     </div>
                   </div>
 
                   <div className="flex-1 flex flex-col bg-slate-950/40 rounded-[2rem] border border-slate-800/40 overflow-hidden shadow-3xl backdrop-blur-xl">
-                    <div className="flex-1 overflow-y-auto p-6 space-y-4 font-mono text-sm custom-scrollbar">
+                    <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 font-mono text-xs md:text-sm custom-scrollbar">
                       {(() => {
                         let logs: IncidentLog[] = [];
                         try { logs = JSON.parse(incidentsMap[activeIncidentId].logs); } catch(e) {}
                         return logs.map((log, idx) => (
-                          <div key={idx} className="flex gap-4 group"><span className="text-slate-800 font-black text-[10px] mt-1 shrink-0">[{log.timestamp}]</span><div className="flex-1"><span className={`font-black mr-4 uppercase tracking-widest ${log.sender.includes('DISPATCH') ? 'text-blue-500' : 'text-emerald-500'}`}>{log.sender}:</span><span className="text-slate-400">{log.message}</span></div></div>
+                          <div key={idx} className="flex gap-2 md:gap-4 group"><span className="text-slate-800 font-black text-[10px] mt-1 shrink-0">[{log.timestamp}]</span><div className="flex-1"><span className={`font-black mr-2 md:mr-4 uppercase tracking-widest ${log.sender.includes('DISPATCH') ? 'text-blue-500' : 'text-emerald-500'}`}>{log.sender}:</span><span className="text-slate-400 break-words">{log.message}</span></div></div>
                         ));
                       })()}
                     </div>
-                    <div className="p-6 bg-slate-950/60 border-t border-slate-800/40 flex gap-4">
-                      <input ref={logInputRef} type="text" value={logInput} onChange={(e) => setLogInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddLog()} placeholder="Enter situational report..." className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 text-white shadow-inner" />
-                      <button onClick={handleAddLog} className="bg-blue-600 hover:bg-blue-500 p-4 rounded-2xl shadow-xl transition-all"><Icons.Send /></button>
+                    <div className="p-4 md:p-6 bg-slate-950/60 border-t border-slate-800/40 flex gap-2 md:gap-4">
+                      <input ref={logInputRef} type="text" value={logInput} onChange={(e) => setLogInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddLog()} placeholder="Enter report..." className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-4 md:px-6 py-3 md:py-4 text-xs md:text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 text-white shadow-inner" />
+                      <button onClick={handleAddLog} className="bg-blue-600 hover:bg-blue-500 p-3 md:p-4 rounded-2xl shadow-xl transition-all shrink-0"><Icons.Send /></button>
                     </div>
                   </div>
                 </div>
 
-                <div className="w-80 border-l border-slate-800 bg-slate-900/20 p-6 flex flex-col shrink-0">
+                <div className={`${effectiveIsMobile ? 'hidden' : 'w-80'} border-l border-slate-800 bg-slate-900/20 p-6 flex flex-col shrink-0 overflow-hidden`}>
                    <div className="flex items-center justify-between mb-6">
                       <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Tactical Roster</h3>
                       {session?.role === 'DISPATCH' && <button onClick={() => setIsAssigningUnit(true)} className="p-2 bg-blue-600 rounded-lg hover:bg-blue-500 transition-all text-white"><Icons.Plus /></button>}
                    </div>
-                   <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar">
+                   <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-2">
                       {(() => {
                         let assigned: string[] = [];
                         try { assigned = JSON.parse(incidentsMap[activeIncidentId].assignedUnits); } catch(e) {}
@@ -586,6 +647,23 @@ const App: React.FC = () => {
           </div>
         </section>
       </div>
+
+      {effectiveIsMobile && (
+        <nav className="h-16 bg-slate-900 border-t border-slate-800 flex items-center justify-around px-4 shrink-0 z-30">
+          <button onClick={() => setMobileTab('UNITS')} className={`flex flex-col items-center gap-1 transition-all ${mobileTab === 'UNITS' ? 'text-blue-400 scale-110' : 'text-slate-600'}`}>
+            <Icons.Police />
+            <span className="text-[9px] font-black uppercase">Units</span>
+          </button>
+          <button onClick={() => setMobileTab('INCIDENTS')} className={`flex flex-col items-center gap-1 transition-all ${mobileTab === 'INCIDENTS' ? 'text-blue-400 scale-110' : 'text-slate-600'}`}>
+            <Icons.Fire />
+            <span className="text-[9px] font-black uppercase">Calls</span>
+          </button>
+          <button onClick={() => setMobileTab('ACTIVE')} className={`flex flex-col items-center gap-1 transition-all ${mobileTab === 'ACTIVE' ? 'text-emerald-400 scale-110' : 'text-slate-600'} ${!activeIncidentId ? 'opacity-30 grayscale cursor-not-allowed' : ''}`}>
+            <Icons.Send />
+            <span className="text-[9px] font-black uppercase">Action</span>
+          </button>
+        </nav>
+      )}
 
       {isAssigningUnit && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-4">
