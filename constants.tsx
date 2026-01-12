@@ -1,5 +1,6 @@
 
 import React from 'react';
+import { UnitType } from './types';
 
 export const ERLC_LOCATIONS = [
   'Springfield Bank',
@@ -19,67 +20,51 @@ export const ERLC_LOCATIONS = [
   'Highway 10: Southbound'
 ];
 
+export const DEPARTMENT_CALL_TYPES: Record<string, string[]> = {
+  [UnitType.POLICE]: [
+    '10-99 (Officer Down / Emergency)',
+    'Armed Robbery',
+    'Burglary in Progress',
+    'Shootout / Shots Fired',
+    'Traffic Stop',
+    'Grand Theft Auto',
+    'Civil Disturbance',
+    'Suspicious Activity',
+    'Pursuit',
+    'Narcotics Activity',
+    'Assault',
+    'Warrant Service'
+  ],
+  [UnitType.FIRE]: [
+    '10-99 (Mayday / Emergency)',
+    'Structure Fire',
+    'Vehicle Fire',
+    'Brush Fire',
+    'Medical Emergency',
+    'Technical Rescue',
+    'Hazardous Materials',
+    'Alarm Reset',
+    'Gas Leak',
+    'Motor Vehicle Accident (PI)'
+  ],
+  [UnitType.DOT]: [
+    '10-99 (Emergency)',
+    'Road Obstruction',
+    'Vehicle Tow / Impound',
+    'Signal Malfunction',
+    'Debris Removal',
+    'Transport Escort',
+    'Infrastructure Damage',
+    'Safety Inspection',
+    'Road Closure Support'
+  ]
+};
+
+// Default flat list for backward compatibility if needed, though we should move to the categorized version
 export const CALL_TYPES = [
-  // NYSP SIGNAL CODES
-  'Signal B: Phone HQ',
-  'Signal 7: Failure to pay toll',
-  'Signal 55: What is your location',
-  'Signal 90: Request for overtime',
-
-  // NYSP FILE CODES
-  'File 1: Stolen vehicle',
-  'File 2: Motor vehicle registration check',
-  'File 3: Report to division headquarters',
-  'File 4: Hit & run',
-  'File 5: Wanted person',
-  'File 6: Missing person',
-  'File 7: Burglary',
-  'File 8: Robbery',
-  'File 9: Lost/missing property',
-  'File 10: Stolen property',
-  'File 11: Assault',
-  'File 12: Homicide',
-  'File 13: General information',
-  'File 14: Administrative message',
-  'File 15: Request for information',
-  'File 16: Lost/stolen license plates',
-  'File 20: Criminal investigation',
-  'File 28: Weather & road conditions',
-  'File 44: Test messages follow',
-
-  // NYSP GENERAL CODES
-  'RED FLASH: Major Emergency (Clear Channel)',
-  'AA: Automobile accident',
-  'DV: Disabled vehicle',
-  'F: Fatal',
-  'PD: Property damage',
-  'PI: Personal injury',
-  'S&R: Suspension(s) & revocation(s)',
-
-  // STANDARD APCO 10-CODES (Used by NYSP)
-  '10-1: Unable to copy - Change location',
-  '10-2: Signals good',
-  '10-4: Acknowledgment (OK)',
-  '10-7: Out of service',
-  '10-8: In service',
-  '10-9: Repeat',
-  '10-10: Off duty',
-  '10-11: Talking too rapidly',
-  '10-13: Advise weather/road conditions',
-  '10-18: Complete assignment quickly',
-  '10-19: Return to station',
-  '10-20: Location',
-  '10-21: Call station by telephone',
-  '10-22: Disregard',
-  '10-23: Stand by',
-  '10-25: Report to (person/place)',
-  '10-28: Check motor vehicle registration',
-  '10-29: Check for wants/warrants',
-  '10-33: Emergency',
-  '10-42: Ending tour of duty',
-  '10-43: Information',
-  '10-97: Arrived at scene',
-  '10-98: Finished last assignment'
+  ...DEPARTMENT_CALL_TYPES[UnitType.POLICE],
+  ...DEPARTMENT_CALL_TYPES[UnitType.FIRE],
+  ...DEPARTMENT_CALL_TYPES[UnitType.DOT]
 ];
 
 export const STATUS_COLORS: Record<string, string> = {

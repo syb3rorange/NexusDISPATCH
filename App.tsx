@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Gun from 'gun';
 import { Unit, Incident, UnitStatus, UnitType, Priority, IncidentLog, UserSession } from './types';
-import { CALL_TYPES, STATUS_COLORS, PRIORITY_COLORS, Icons, ERLC_LOCATIONS } from './constants';
+import { DEPARTMENT_CALL_TYPES, STATUS_COLORS, PRIORITY_COLORS, Icons, ERLC_LOCATIONS } from './constants';
 
 const gun = Gun([
   'https://gun-manhattan.herokuapp.com/gun', 
@@ -33,7 +33,6 @@ const App: React.FC = () => {
   const [dispatchPass, setDispatchPass] = useState('');
   const [hasPersistentDispatch, setHasPersistentDispatch] = useState(false);
   
-  // Persistent onboarding form data to survive the 5-min idle refresh
   const [onboardingData, setOnboardingData] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEY_DRAFT_ONBOARDING);
     return saved ? JSON.parse(saved) : { roblox: '', callsign: '', type: UnitType.POLICE };
@@ -56,11 +55,23 @@ const App: React.FC = () => {
   const [isAssigningUnit, setIsAssigningUnit] = useState(false);
   const [newUnitData, setNewUnitData] = useState({ callsign: '', type: UnitType.POLICE });
   
+  // State for department-specific call creation
+  const [newCallDept, setNewCallDept] = useState<UnitType>(UnitType.POLICE);
+  const [newCallType, setNewCallType] = useState(DEPARTMENT_CALL_TYPES[UnitType.POLICE][0]);
+  const [newLocation, setNewLocation] = useState('');
+  const [newPriority, setNewPriority] = useState<Priority>(Priority.MEDIUM);
+
+  // Sync call type selection when department changes in modal
+  useEffect(() => {
+    if (DEPARTMENT_CALL_TYPES[newCallDept]) {
+      setNewCallType(DEPARTMENT_CALL_TYPES[newCallDept][0]);
+    }
+  }, [newCallDept]);
+
   const [logInput, setLogInput] = useState('');
   const [lastSyncTime, setLastSyncTime] = useState<number>(Date.now());
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // --- VIEW MODE LOGIC ---
   const [viewMode, setViewMode] = useState<'AUTO' | 'MOBILE' | 'DESKTOP'>(() => {
     return (localStorage.getItem(STORAGE_KEY_VIEW_MODE) as any) || 'AUTO';
   });
@@ -86,7 +97,6 @@ const App: React.FC = () => {
     return screenWidth < 1024;
   }, [viewMode, screenWidth]);
 
-  // --- REFRESH LOGIC ---
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(() => {
     const saved = localStorage.getItem(STORAGE_KEY_AUTO_REFRESH);
     return saved === null ? true : saved === 'true';
@@ -94,11 +104,9 @@ const App: React.FC = () => {
   
   const [refreshInterval, setRefreshInterval] = useState<number>(() => {
     const saved = localStorage.getItem(STORAGE_KEY_REFRESH_INTERVAL);
-    // Default to 20 seconds for logged in users
     return saved ? parseInt(saved, 10) : 20;
   });
 
-  // Derived interval: 300s (5m) for login, user preference (20s default) for active
   const currentInterval = useMemo(() => {
     if (!session) return 300; 
     return refreshInterval;   
@@ -107,7 +115,6 @@ const App: React.FC = () => {
   const [timeLeft, setTimeLeft] = useState<number>(currentInterval);
   const [showRefreshSettings, setShowRefreshSettings] = useState(false);
 
-  // Restart timer when session state changes
   useEffect(() => {
     setTimeLeft(currentInterval);
   }, [session, currentInterval]);
@@ -120,10 +127,13 @@ const App: React.FC = () => {
     }, 500);
   }, []);
 
+  const isInputtingAction = useMemo(() => {
+    return activeIncidentId !== null || isCreatingCall || isAddingUnit || isAssigningUnit || showRefreshSettings;
+  }, [activeIncidentId, isCreatingCall, isAddingUnit, isAssigningUnit, showRefreshSettings]);
+
   useEffect(() => {
     let timer: number;
-    // We only pause when a unit is actively focused on an incident's details
-    if (autoRefreshEnabled && !activeIncidentId) {
+    if (autoRefreshEnabled && !isInputtingAction) {
       timer = window.setInterval(() => {
         setTimeLeft(prev => {
           if (prev <= 1) {
@@ -135,7 +145,7 @@ const App: React.FC = () => {
       }, 1000);
     }
     return () => clearInterval(timer);
-  }, [autoRefreshEnabled, currentInterval, handleManualRefresh, activeIncidentId]);
+  }, [autoRefreshEnabled, currentInterval, handleManualRefresh, isInputtingAction]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_AUTO_REFRESH, autoRefreshEnabled.toString());
@@ -144,10 +154,6 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_REFRESH_INTERVAL, refreshInterval.toString());
   }, [refreshInterval]);
-
-  const [newCallType, setNewCallType] = useState(CALL_TYPES[0]);
-  const [newLocation, setNewLocation] = useState('');
-  const [newPriority, setNewPriority] = useState<Priority>(Priority.MEDIUM);
 
   const logInputRef = useRef<HTMLInputElement>(null);
 
@@ -300,7 +306,7 @@ const App: React.FC = () => {
       id: '1', 
       timestamp: new Date().toLocaleTimeString(), 
       sender: session?.role === 'DISPATCH' ? 'DISPATCH' : (session?.callsign || 'UNIT'), 
-      message: `Incident Initialized: ${newCallType}` 
+      message: `Incident Initialized for [${newCallDept}]: ${newCallType}` 
     }];
 
     const newIncident: Incident = {
@@ -453,7 +459,6 @@ const App: React.FC = () => {
   if (!session) {
     return (
       <div className="h-screen w-screen bg-[#020617] flex flex-col items-center justify-center p-4 text-slate-100 relative overflow-hidden">
-        {/* Sync Indicator for Login Screen - 5 Minute Idle Refresh */}
         <div className="absolute top-4 right-4 flex items-center gap-2 bg-slate-950/60 p-2 rounded-xl border border-slate-800 z-50">
            <div className={`w-2 h-2 rounded-full ${autoRefreshEnabled ? 'bg-blue-500 animate-pulse shadow-[0_0_8px_#3b82f6]' : 'bg-slate-700'}`}></div>
            <span className="text-[9px] font-black font-mono text-slate-500">{autoRefreshEnabled ? `IDLE SYNC: ${Math.floor(timeLeft / 60)}m ${timeLeft % 60}s` : 'SYNC: OFF'}</span>
@@ -526,7 +531,7 @@ const App: React.FC = () => {
             </button>
             <div className="w-px h-4 bg-slate-800 mx-1"></div>
             <button title="Manual Sync" onClick={handleManualRefresh} className={`p-2 rounded-lg hover:bg-slate-800 text-slate-500 transition-all ${isRefreshing ? 'animate-spin text-blue-500' : ''}`}><Icons.Refresh /></button>
-            <div className="flex flex-col items-center justify-center min-w-[3.5rem]"><span className={`text-[9px] font-black font-mono leading-none ${activeIncidentId ? 'text-amber-500' : autoRefreshEnabled ? 'text-blue-400' : 'text-slate-700'}`}>{activeIncidentId ? 'PAUSED' : autoRefreshEnabled ? `${timeLeft}s` : '--'}</span></div>
+            <div className="flex flex-col items-center justify-center min-w-[3.5rem]"><span className={`text-[9px] font-black font-mono leading-none ${isInputtingAction ? 'text-amber-500' : autoRefreshEnabled ? 'text-blue-400' : 'text-slate-700'}`}>{isInputtingAction ? 'PAUSED' : autoRefreshEnabled ? `${timeLeft}s` : '--'}</span></div>
             <button onClick={() => setShowRefreshSettings(!showRefreshSettings)} className={`p-2 rounded-lg hover:bg-slate-800 transition-all ${showRefreshSettings ? 'text-blue-500' : 'text-slate-500'}`} title="Auto-Refresh Settings"><Icons.Cpu /></button>
             {showRefreshSettings && (
               <div className="absolute top-14 right-0 w-64 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-3xl z-[70] animate-in fade-in slide-in-from-top-2">
@@ -718,11 +723,42 @@ const App: React.FC = () => {
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-4 md:p-8">
           <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-8 md:p-12 w-full max-w-2xl space-y-8 animate-in zoom-in-95 shadow-3xl max-h-[90vh] overflow-y-auto custom-scrollbar">
              <div className="grid md:grid-cols-2 gap-6 md:gap-8">
-                <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Call Category</label><select value={newCallType} onChange={(e) => setNewCallType(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-5 font-black text-white outline-none appearance-none cursor-pointer shadow-inner">{CALL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
-                <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Response Code</label><div className="grid grid-cols-2 gap-2">{Object.values(Priority).map(p => <button key={p} onClick={() => setNewPriority(p)} className={`py-3 md:py-4 rounded-xl border text-[10px] font-black uppercase transition-all tracking-tighter ${newPriority === p ? 'bg-blue-600 text-white shadow-lg border-blue-400' : 'bg-slate-950 text-slate-700 border-slate-800'}`}>{p}</button>)}</div></div>
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Responding Agency</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button onClick={() => setNewCallDept(UnitType.POLICE)} className={`py-3 rounded-xl border text-[9px] font-black transition-all ${newCallDept === UnitType.POLICE ? 'bg-blue-600 border-blue-400 text-white shadow-lg' : 'bg-slate-950 border-slate-800 text-slate-700'}`}>POLICE</button>
+                    <button onClick={() => setNewCallDept(UnitType.FIRE)} className={`py-3 rounded-xl border text-[9px] font-black transition-all ${newCallDept === UnitType.FIRE ? 'bg-red-600 border-red-400 text-white shadow-lg' : 'bg-slate-950 border-slate-800 text-slate-700'}`}>FIRE</button>
+                    <button onClick={() => setNewCallDept(UnitType.DOT)} className={`py-3 rounded-xl border text-[9px] font-black transition-all ${newCallDept === UnitType.DOT ? 'bg-yellow-600 border-yellow-400 text-white shadow-lg' : 'bg-slate-950 border-slate-800 text-slate-700'}`}>DOT</button>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Call Scenario</label>
+                  <select value={newCallType} onChange={(e) => setNewCallType(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-5 font-black text-white outline-none appearance-none cursor-pointer shadow-inner">
+                    {DEPARTMENT_CALL_TYPES[newCallDept]?.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
              </div>
-             <div className="space-y-4"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Location Coordinates</label><input type="text" placeholder="STREET / POI / POSTAL" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} list="loc-suggestions" className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-6 font-black outline-none focus:ring-2 focus:ring-blue-500 text-white shadow-inner transition-all placeholder:text-slate-800" /><datalist id="loc-suggestions">{ERLC_LOCATIONS.map(l => <option key={l} value={l} />)}</datalist></div>
-             <div className="flex gap-4 md:gap-6 pt-4"><button onClick={() => setIsCreatingCall(false)} className="flex-1 font-black text-[11px] text-slate-500 uppercase tracking-widest hover:text-white transition-colors">Discard</button><button onClick={createIncident} className="flex-[3] bg-blue-600 hover:bg-blue-500 text-white py-4 md:py-6 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl active:scale-95 transition-all">Broadcast Call</button></div>
+             
+             <div className="grid md:grid-cols-2 gap-6 md:gap-8">
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Location Coordinates</label>
+                  <input type="text" placeholder="STREET / POI / POSTAL" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} list="loc-suggestions" className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-5 font-black outline-none focus:ring-2 focus:ring-blue-500 text-white shadow-inner transition-all placeholder:text-slate-800" />
+                  <datalist id="loc-suggestions">{ERLC_LOCATIONS.map(l => <option key={l} value={l} />)}</datalist>
+                </div>
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Response Code</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {Object.values(Priority).map(p => (
+                      <button key={p} onClick={() => setNewPriority(p)} className={`py-3 md:py-4 rounded-xl border text-[10px] font-black uppercase transition-all tracking-tighter ${newPriority === p ? 'bg-slate-700 text-white shadow-lg border-slate-500' : 'bg-slate-950 text-slate-800 border-slate-800'}`}>{p}</button>
+                    ))}
+                  </div>
+                </div>
+             </div>
+
+             <div className="flex gap-4 md:gap-6 pt-4">
+                <button onClick={() => setIsCreatingCall(false)} className="flex-1 font-black text-[11px] text-slate-500 uppercase tracking-widest hover:text-white transition-colors">Discard</button>
+                <button onClick={createIncident} className="flex-[3] bg-blue-600 hover:bg-blue-500 text-white py-4 md:py-6 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl active:scale-95 transition-all">Broadcast Call</button>
+             </div>
           </div>
         </div>
       )}
