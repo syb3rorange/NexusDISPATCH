@@ -1,12 +1,15 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Unit, Incident, UnitStatus, UnitType, Priority, IncidentLog, UserSession } from './types';
 import { CALL_TYPES, STATUS_COLORS, PRIORITY_COLORS, Icons, ERLC_LOCATIONS } from './constants';
 
-const STORAGE_KEY_UNITS = 'nexus_cad_data_units_'; // Suffix with roomId
-const STORAGE_KEY_INCIDENTS = 'nexus_cad_data_incidents_'; // Suffix with roomId
+const STORAGE_KEY_UNITS = 'nexus_cad_data_units_';
+const STORAGE_KEY_INCIDENTS = 'nexus_cad_data_incidents_';
 const STORAGE_KEY_SESSION = 'nexus_cad_auth_session';
 const STORAGE_KEY_ROOM_ID = 'nexus_cad_active_room';
+
+// SYNC_CHANNEL allows multiple tabs to talk to each other in real-time
+const SYNC_CHANNEL = new BroadcastChannel('nexus_cad_sync');
 
 const App: React.FC = () => {
   // 1. Core State
@@ -19,7 +22,6 @@ const App: React.FC = () => {
     return localStorage.getItem(STORAGE_KEY_ROOM_ID);
   });
 
-  // CAD Data State (Refreshed based on Room ID)
   const [units, setUnits] = useState<Unit[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
 
@@ -29,39 +31,73 @@ const App: React.FC = () => {
   const [logInput, setLogInput] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   
-  // Mobile UI Logic
   const [isMobileMode, setIsMobileMode] = useState(window.innerWidth < 1024);
   const [mobileTab, setMobileTab] = useState<'UNITS' | 'INCIDENTS' | 'ACTIVE'>('INCIDENTS');
 
-  // Login/Onboarding Form State
+  // Login Form State
   const [loginRole, setLoginRole] = useState<'DISPATCH' | 'POLICE' | 'FIRE' | null>(null);
   const [loginName, setLoginName] = useState(''); 
   const [robloxName, setRobloxName] = useState('');
   const [joinCodeInput, setJoinCodeInput] = useState('');
 
-  // 2. Lifecycle & Persistence
+  // 2. Synchronization & Persistence
+  
+  // Handle Cross-Tab Sync
   useEffect(() => {
-    const handleResize = () => setIsMobileMode(window.innerWidth < 1024);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+    const handleSync = (event: MessageEvent) => {
+      const { type, payload, room } = event.data;
+      if (room !== roomId) return;
 
-  // Load Room Data when Room ID changes
+      if (type === 'UPDATE_UNITS') setUnits(payload);
+      if (type === 'UPDATE_INCIDENTS') setIncidents(payload);
+      if (type === 'HEARTBEAT_REQUEST') {
+        // If we are a unit, respond with our presence
+        SYNC_CHANNEL.postMessage({ type: 'HEARTBEAT_PULSE', room: roomId });
+      }
+    };
+
+    SYNC_CHANNEL.onmessage = handleSync;
+    return () => { SYNC_CHANNEL.onmessage = null; };
+  }, [roomId]);
+
+  // Initial Load from Storage
   useEffect(() => {
     if (roomId) {
       const savedUnits = localStorage.getItem(STORAGE_KEY_UNITS + roomId);
       const savedIncidents = localStorage.getItem(STORAGE_KEY_INCIDENTS + roomId);
-      setUnits(savedUnits ? JSON.parse(savedUnits) : []);
-      setIncidents(savedIncidents ? JSON.parse(savedIncidents) : []);
+      const loadedUnits = savedUnits ? JSON.parse(savedUnits) : [];
+      const loadedIncidents = savedIncidents ? JSON.parse(savedIncidents) : [];
+      
+      setUnits(loadedUnits);
+      setIncidents(loadedIncidents);
       localStorage.setItem(STORAGE_KEY_ROOM_ID, roomId);
+
+      // Heartbeat: If I am a unit, make sure I am in that list
+      if (session?.role === 'UNIT' && session.callsign) {
+        setUnits(prev => {
+          const exists = prev.find(u => u.name === session.callsign);
+          if (exists) return prev;
+          const me: Unit = {
+            id: `U-${Date.now()}`,
+            name: session.callsign!,
+            type: session.unitType!,
+            status: UnitStatus.AVAILABLE,
+            robloxUser: session.robloxUsername!,
+            lastUpdated: new Date().toISOString(),
+          };
+          const next = [...prev, me];
+          SYNC_CHANNEL.postMessage({ type: 'UPDATE_UNITS', payload: next, room: roomId });
+          return next;
+        });
+      }
     } else {
       localStorage.removeItem(STORAGE_KEY_ROOM_ID);
       setUnits([]);
       setIncidents([]);
     }
-  }, [roomId]);
+  }, [roomId, session]);
 
-  // Sync Room Data to Storage
+  // Periodic Save and Broadcast
   useEffect(() => {
     if (roomId) {
       localStorage.setItem(STORAGE_KEY_UNITS + roomId, JSON.stringify(units));
@@ -69,14 +105,12 @@ const App: React.FC = () => {
     }
   }, [units, incidents, roomId]);
 
-  // Save Session
+  // Responsive UI
   useEffect(() => {
-    if (session) {
-      localStorage.setItem(STORAGE_KEY_SESSION, JSON.stringify(session));
-    } else {
-      localStorage.removeItem(STORAGE_KEY_SESSION);
-    }
-  }, [session]);
+    const handleResize = () => setIsMobileMode(window.innerWidth < 1024);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Derived Data
   const activeIncident = useMemo(() => 
@@ -102,9 +136,15 @@ const App: React.FC = () => {
   // 3. Handlers
   const handleManualRefresh = () => {
     setIsRefreshing(true);
-    setTimeout(() => {
-      window.location.reload();
-    }, 800);
+    // Force reload from storage and broadcast a heartbeat request
+    const savedUnits = localStorage.getItem(STORAGE_KEY_UNITS + roomId);
+    const savedIncidents = localStorage.getItem(STORAGE_KEY_INCIDENTS + roomId);
+    if (savedUnits) setUnits(JSON.parse(savedUnits));
+    if (savedIncidents) setIncidents(JSON.parse(savedIncidents));
+    
+    SYNC_CHANNEL.postMessage({ type: 'HEARTBEAT_REQUEST', room: roomId });
+    
+    setTimeout(() => setIsRefreshing(false), 1000);
   };
 
   const handleLogin = () => {
@@ -114,12 +154,12 @@ const App: React.FC = () => {
     const callsign = loginName.toUpperCase();
     const rbx = robloxName.trim();
     
-    if (loginRole === 'DISPATCH') {
-      setSession({ role: 'DISPATCH', username: callsign });
-    } else {
-      const type = loginRole === 'POLICE' ? UnitType.POLICE : UnitType.FIRE;
-      setSession({ role: 'UNIT', callsign, robloxUsername: rbx, unitType: type });
-    }
+    const newSession: UserSession = loginRole === 'DISPATCH' 
+      ? { role: 'DISPATCH', username: callsign }
+      : { role: 'UNIT', callsign, robloxUsername: rbx, unitType: loginRole === 'POLICE' ? UnitType.POLICE : UnitType.FIRE };
+    
+    setSession(newSession);
+    localStorage.setItem(STORAGE_KEY_SESSION, JSON.stringify(newSession));
   };
 
   const createServer = () => {
@@ -134,28 +174,11 @@ const App: React.FC = () => {
     if (!joinCodeInput) return;
     const code = joinCodeInput.toUpperCase();
     setRoomId(code);
-
-    if (session?.role === 'UNIT' && session.callsign) {
-      setTimeout(() => {
-        setUnits(prev => {
-          if (prev.find(u => u.name === session.callsign)) return prev;
-          const newUnit: Unit = {
-            id: `U-${Date.now()}`,
-            name: session.callsign!,
-            type: session.unitType!,
-            status: UnitStatus.AVAILABLE,
-            robloxUser: session.robloxUsername!,
-            lastUpdated: new Date().toISOString(),
-          };
-          return [...prev, newUnit];
-        });
-      }, 100);
-    }
   };
 
   const deleteServer = () => {
     if (!roomId) return;
-    if (confirm("DANGER: This will permanently wipe all server data for this code. Proceed?")) {
+    if (confirm("Wipe server data? This will clear all calls and units for this code on your device.")) {
       localStorage.removeItem(STORAGE_KEY_UNITS + roomId);
       localStorage.removeItem(STORAGE_KEY_INCIDENTS + roomId);
       setRoomId(null);
@@ -165,20 +188,21 @@ const App: React.FC = () => {
   const handleSignOut = () => {
     setSession(null);
     setRoomId(null);
-    setLoginRole(null);
-    setLoginName('');
-    setRobloxName('');
+    localStorage.removeItem(STORAGE_KEY_SESSION);
+    localStorage.removeItem(STORAGE_KEY_ROOM_ID);
   };
 
   const updateStatus = (status: UnitStatus) => {
     if (!session?.callsign) return;
-    setUnits(prev => prev.map(u => 
+    const nextUnits = units.map(u => 
       u.name === session.callsign ? { ...u, status, lastUpdated: new Date().toISOString() } : u
-    ));
+    );
+    setUnits(nextUnits);
+    SYNC_CHANNEL.postMessage({ type: 'UPDATE_UNITS', payload: nextUnits, room: roomId });
   };
 
   const assignUnitToCall = (unitName: string, incidentId: string) => {
-    setIncidents(prev => prev.map(inc => {
+    const nextIncidents = incidents.map(inc => {
       if (inc.id === incidentId) {
         let assigned: string[] = [];
         try { assigned = JSON.parse(inc.assignedUnits); } catch { assigned = []; }
@@ -186,11 +210,13 @@ const App: React.FC = () => {
         return { ...inc, assignedUnits: JSON.stringify(assigned) };
       }
       return inc;
-    }));
+    });
+    setIncidents(nextIncidents);
+    SYNC_CHANNEL.postMessage({ type: 'UPDATE_INCIDENTS', payload: nextIncidents, room: roomId });
   };
 
   const unassignUnitFromCall = (unitName: string, incidentId: string) => {
-    setIncidents(prev => prev.map(inc => {
+    const nextIncidents = incidents.map(inc => {
       if (inc.id === incidentId) {
         let assigned: string[] = [];
         try { assigned = JSON.parse(inc.assignedUnits); } catch { assigned = []; }
@@ -198,7 +224,9 @@ const App: React.FC = () => {
         return { ...inc, assignedUnits: JSON.stringify(assigned) };
       }
       return inc;
-    }));
+    });
+    setIncidents(nextIncidents);
+    SYNC_CHANNEL.postMessage({ type: 'UPDATE_INCIDENTS', payload: nextIncidents, room: roomId });
   };
 
   const createIncident = (type: string, loc: string, priority: Priority) => {
@@ -210,10 +238,12 @@ const App: React.FC = () => {
       priority,
       status: 'ACTIVE',
       assignedUnits: JSON.stringify([]),
-      logs: JSON.stringify([{ id: '1', timestamp: new Date().toLocaleTimeString(), sender: 'SYSTEM', message: 'Call Broadcast Initialized' }]),
+      logs: JSON.stringify([{ id: '1', timestamp: new Date().toLocaleTimeString(), sender: 'SYSTEM', message: 'CAD Broadcast Initiated' }]),
       startTime: new Date().toISOString(),
     };
-    setIncidents(prev => [...prev, newInc]);
+    const nextIncidents = [...incidents, newInc];
+    setIncidents(nextIncidents);
+    SYNC_CHANNEL.postMessage({ type: 'UPDATE_INCIDENTS', payload: nextIncidents, room: roomId });
     setActiveIncidentId(id);
     setIsCreatingCall(false);
     if (isMobileMode) setMobileTab('ACTIVE');
@@ -227,21 +257,25 @@ const App: React.FC = () => {
       sender: session?.role === 'DISPATCH' ? 'DISPATCH' : (session?.callsign || 'UNIT'),
       message: logInput
     };
-    setIncidents(prev => prev.map(inc => {
+    const nextIncidents = incidents.map(inc => {
       if (inc.id === activeIncidentId) {
         const logs = JSON.parse(inc.logs);
         return { ...inc, logs: JSON.stringify([...logs, log]) };
       }
       return inc;
-    }));
+    });
+    setIncidents(nextIncidents);
+    SYNC_CHANNEL.postMessage({ type: 'UPDATE_INCIDENTS', payload: nextIncidents, room: roomId });
     setLogInput('');
   };
 
   const closeIncident = () => {
     if (!activeIncidentId) return;
-    setIncidents(prev => prev.map(inc => 
+    const nextIncidents = incidents.map(inc => 
       inc.id === activeIncidentId ? { ...inc, status: 'CLOSED' } : inc
-    ));
+    );
+    setIncidents(nextIncidents);
+    SYNC_CHANNEL.postMessage({ type: 'UPDATE_INCIDENTS', payload: nextIncidents, room: roomId });
     setActiveIncidentId(null);
     if (isMobileMode) setMobileTab('INCIDENTS');
   };
@@ -249,9 +283,11 @@ const App: React.FC = () => {
   const copyRoomId = () => {
     if (roomId) {
       navigator.clipboard.writeText(roomId);
-      alert('Room Code Copied!');
+      alert('Room Code Copied to Clipboard!');
     }
   };
+
+  // 4. Render Logic
 
   // Login Screen
   if (!session) {
@@ -277,9 +313,9 @@ const App: React.FC = () => {
             {loginRole && (
               <div className="animate-in fade-in slide-in-from-top-2 space-y-4">
                 {loginRole !== 'DISPATCH' && (
-                  <input type="text" placeholder="Roblox Username" value={robloxName} onChange={(e) => setRobloxName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 font-bold text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
+                  <input type="text" placeholder="Roblox Username" value={robloxName} onChange={(e) => setRobloxName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 font-bold text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-700" />
                 )}
-                <input type="text" placeholder={loginRole === 'DISPATCH' ? "Operator ID" : "Callsign (e.g. 1A-10)"} value={loginName} onChange={(e) => setLoginName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 font-bold text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
+                <input type="text" placeholder={loginRole === 'DISPATCH' ? "Operator ID" : "Callsign (e.g. 1A-10)"} value={loginName} onChange={(e) => setLoginName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 font-bold text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-700" />
                 <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-500 py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl active:scale-95 transition-all">Confirm Identity</button>
               </div>
             )}
@@ -289,26 +325,32 @@ const App: React.FC = () => {
     );
   }
 
-  // Room Picker
+  // Session Picker
   if (!roomId) {
     return (
       <div className="h-screen w-screen bg-[#020617] flex flex-col items-center justify-center p-6">
-        <div className="bg-slate-900 border border-slate-800 p-10 rounded-[2.5rem] w-full max-w-lg shadow-2xl text-center">
+        <div className="bg-slate-900 border border-slate-800 p-10 rounded-[3rem] w-full max-w-lg shadow-2xl text-center">
           <h2 className="text-2xl font-black uppercase tracking-widest mb-2">Initialize Session</h2>
-          <p className="text-slate-500 text-xs mb-10 font-mono uppercase tracking-[0.2em]">{session.role} // ID: {session.callsign || session.username}</p>
+          <p className="text-slate-500 text-[10px] mb-10 font-mono uppercase tracking-[0.3em] font-black">{session.role} // {session.callsign || session.username}</p>
           <div className="space-y-8">
             <div className="space-y-4">
-              <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest block text-left mb-1 px-4">Enter Room Code</label>
-              <input type="text" placeholder="000000" value={joinCodeInput} onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-6 text-center text-4xl font-black tracking-[0.5em] outline-none focus:ring-2 focus:ring-blue-500 transition-all text-blue-500 placeholder:text-slate-800" />
-              <button onClick={joinServer} className="w-full bg-blue-600 hover:bg-blue-500 py-5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all">Join Active Session</button>
+              <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest block text-left mb-1 px-4">Join Active Server</label>
+              <input 
+                type="text" 
+                placeholder="000000" 
+                value={joinCodeInput} 
+                onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())} 
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-6 text-center text-5xl font-black tracking-[0.4em] outline-none focus:ring-2 focus:ring-blue-500 transition-all text-blue-500 placeholder:text-slate-900 shadow-inner" 
+              />
+              <button onClick={joinServer} className="w-full bg-blue-600 hover:bg-blue-500 py-6 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all">Connect to Frequency</button>
             </div>
             {session.role === 'DISPATCH' && (
               <>
                 <div className="flex items-center gap-4 py-2"><div className="flex-1 h-px bg-slate-800"></div><span className="text-[10px] font-black text-slate-700 uppercase">OR</span><div className="flex-1 h-px bg-slate-800"></div></div>
-                <button onClick={createServer} className="w-full bg-slate-800 hover:bg-slate-700 py-5 rounded-2xl font-black text-xs uppercase tracking-widest transition-all border border-slate-700">Start New Server</button>
+                <button onClick={createServer} className="w-full bg-slate-800 hover:bg-slate-700 py-5 rounded-2xl font-black text-xs uppercase tracking-widest transition-all border border-slate-700">Initialize New HQ</button>
               </>
             )}
-            <button onClick={handleSignOut} className="text-[10px] font-black uppercase text-slate-600 hover:text-red-500 mt-6 transition-colors">Sign Out</button>
+            <button onClick={handleSignOut} className="text-[10px] font-black uppercase text-slate-600 hover:text-red-500 mt-6 transition-colors">Abort & Sign Out</button>
           </div>
         </div>
       </div>
@@ -316,35 +358,48 @@ const App: React.FC = () => {
   }
 
   const isDispatch = session.role === 'DISPATCH';
-  const themeColor = session.unitType === UnitType.FIRE ? 'text-red-500' : 'text-blue-500';
-  const themeBg = session.unitType === UnitType.FIRE ? 'bg-red-600' : 'bg-blue-600';
+  const roleColor = session.unitType === UnitType.FIRE ? 'text-red-500' : 'text-blue-500';
+  const roleBg = session.unitType === UnitType.FIRE ? 'bg-red-600' : 'bg-blue-600';
 
   return (
     <div className="flex flex-col h-screen bg-[#020617] text-slate-100 font-sans overflow-hidden">
       <header className="h-16 shrink-0 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between px-4 md:px-8 backdrop-blur-xl z-30">
         <div className="flex items-center gap-3 md:gap-4">
-          <div className={`${isDispatch ? 'bg-emerald-600' : themeBg} p-2 rounded-xl shadow-lg`}><Icons.Police /></div>
-          <h1 className="text-lg md:text-xl font-black uppercase tracking-tighter hidden xs:block">NEXUS<span className={isDispatch ? 'text-emerald-400' : themeColor}>{isDispatch ? 'HQ' : session.unitType}</span></h1>
+          <div className={`${isDispatch ? 'bg-emerald-600' : roleBg} p-2 rounded-xl shadow-lg`}><Icons.Police /></div>
+          <h1 className="text-lg md:text-xl font-black uppercase tracking-tighter hidden xs:block">NEXUS<span className={isDispatch ? 'text-emerald-400' : roleColor}>{isDispatch ? 'HQ' : session.unitType}</span></h1>
           <div className="h-6 w-px bg-slate-800 mx-1 md:mx-2"></div>
-          <div onClick={copyRoomId} className="bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-xl flex items-center gap-2 cursor-pointer hover:bg-emerald-500/20 transition-all shadow-lg">
-            <span className="text-xs md:text-sm font-black text-emerald-400 font-mono tracking-widest uppercase">{roomId}</span>
+          
+          {/* HIGH VISIBILITY CODE BADGE */}
+          <div 
+            onClick={copyRoomId} 
+            className="bg-emerald-500/10 border-2 border-emerald-500/30 px-4 py-2 rounded-xl flex items-center gap-3 cursor-pointer hover:bg-emerald-500/20 transition-all shadow-[0_0_15px_rgba(16,185,129,0.1)] active:scale-95 group"
+            title="Click to Copy Room Code"
+          >
+            <span className="text-[9px] font-black text-emerald-500/60 uppercase tracking-widest hidden sm:block">NET_ID:</span>
+            <span className="text-sm md:text-base font-black text-emerald-400 font-mono tracking-[0.2em]">{roomId}</span>
           </div>
         </div>
+        
         <div className="flex items-center gap-2 md:gap-4">
-          <button onClick={handleManualRefresh} className={`p-2.5 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-blue-500 text-slate-400 hover:text-blue-400 transition-all ${isRefreshing ? 'animate-spin' : ''}`}>
+          <button 
+            onClick={handleManualRefresh} 
+            className={`p-2.5 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-blue-500 text-slate-400 hover:text-blue-400 transition-all ${isRefreshing ? 'animate-spin' : ''}`}
+            title="Resync Data"
+          >
             <Icons.Refresh />
           </button>
           {isDispatch && (
             <>
               <button onClick={() => setIsCreatingCall(true)} className="bg-blue-600 hover:bg-blue-500 px-4 md:px-6 py-2.5 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest shadow-lg transition-all">New Call</button>
-              <button onClick={deleteServer} className="p-2.5 text-red-500 hover:bg-red-500/10 border border-slate-700 rounded-xl transition-all"><Icons.Trash /></button>
+              <button onClick={deleteServer} className="p-2.5 text-red-500 hover:bg-red-500/10 border border-slate-700 rounded-xl transition-all" title="Wipe Data"><Icons.Trash /></button>
             </>
           )}
-          <button onClick={() => setRoomId(null)} className="text-[9px] md:text-[10px] font-black uppercase text-slate-500 hover:text-white px-2">Leave</button>
+          <button onClick={() => setRoomId(null)} className="text-[9px] md:text-[10px] font-black uppercase text-slate-500 hover:text-white px-2">Leave Session</button>
         </div>
       </header>
 
       <div className="flex-1 flex overflow-hidden relative">
+        {/* Sidebar - Personnel Roster */}
         <aside className={`${isMobileMode ? (mobileTab === 'UNITS' ? 'flex w-full' : 'hidden') : 'w-80 flex'} border-r border-slate-800/60 bg-slate-950/40 flex-col shrink-0 overflow-y-auto custom-scrollbar-v z-10`}>
           <div className="p-6 border-b border-slate-800 flex items-center justify-between sticky top-0 bg-[#020617]/90 backdrop-blur-md z-10">
             <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Personnel Roster</h2>
@@ -364,36 +419,48 @@ const App: React.FC = () => {
                 </div>
               </div>
             )}
-            {[UnitType.POLICE, UnitType.FIRE, UnitType.EMS].map(type => (
-              <div key={type} className="space-y-2">
-                <h3 className="text-[9px] font-black text-slate-700 uppercase px-2 tracking-widest">{type} UNITS</h3>
-                {units.filter(u => u.type === type).map(unit => {
-                  const statusColors = STATUS_COLORS[unit.status] || '';
-                  const isAssigned = assignedUnitsToActive.some(au => au.name === unit.name);
-                  return (
-                    <div key={unit.id} className={`p-4 rounded-2xl bg-slate-900/40 border ${statusColors.split(' ')[2]} flex flex-col gap-2 relative group transition-all`}>
-                      <div className="flex justify-between items-start">
-                        <div className="flex flex-col">
-                          <span className="font-bold text-xs text-white">{unit.name}</span>
-                          <span className="text-[8px] text-slate-500 italic uppercase">@{unit.robloxUser}</span>
-                          <div className={`mt-1 inline-flex px-2 py-0.5 rounded text-[8px] font-black uppercase ${statusColors.split(' ')[0]} ${statusColors.split(' ')[1]}`}>{unit.status.replace(/_/g, ' ')}</div>
+            
+            {/* Show ALL units to everyone */}
+            {[UnitType.POLICE, UnitType.FIRE, UnitType.EMS].map(type => {
+              const typedUnits = units.filter(u => u.type === type);
+              return (
+                <div key={type} className="space-y-2">
+                  <h3 className="text-[9px] font-black text-slate-700 uppercase px-2 tracking-widest">{type} UNITS ({typedUnits.length})</h3>
+                  {typedUnits.map(unit => {
+                    const statusColors = STATUS_COLORS[unit.status] || '';
+                    const isAssigned = assignedUnitsToActive.some(au => au.name === unit.name);
+                    return (
+                      <div key={unit.id} className={`p-4 rounded-2xl bg-slate-900/40 border ${statusColors.split(' ')[2]} flex flex-col gap-2 relative group transition-all`}>
+                        <div className="flex justify-between items-start">
+                          <div className="flex flex-col">
+                            <span className="font-bold text-xs text-white">{unit.name}</span>
+                            <span className="text-[8px] text-slate-500 italic uppercase">@{unit.robloxUser}</span>
+                            <div className={`mt-1 inline-flex px-2 py-0.5 rounded text-[8px] font-black uppercase ${statusColors.split(' ')[0]} ${statusColors.split(' ')[1]}`}>{unit.status.replace(/_/g, ' ')}</div>
+                          </div>
+                          {isDispatch && <button onClick={() => {
+                            const next = units.filter(u => u.id !== unit.id);
+                            setUnits(next);
+                            SYNC_CHANNEL.postMessage({ type: 'UPDATE_UNITS', payload: next, room: roomId });
+                          }} className="opacity-0 group-hover:opacity-100 p-2 text-slate-600 hover:text-red-500 transition-all"><Icons.Trash /></button>}
                         </div>
-                        {isDispatch && <button onClick={() => setUnits(prev => prev.filter(u => u.id !== unit.id))} className="opacity-0 group-hover:opacity-100 p-2 text-slate-600 hover:text-red-500 transition-all"><Icons.Trash /></button>}
+                        {activeIncident && (isDispatch || unit.name === session.callsign) && (
+                          <button onClick={() => isAssigned ? unassignUnitFromCall(unit.name, activeIncident.id) : assignUnitToCall(unit.name, activeIncident.id)} className={`w-full py-2 rounded-lg border text-[9px] font-black uppercase transition-all mt-1 ${isAssigned ? 'bg-red-500/10 border-red-500/40 text-red-500 hover:bg-red-500 hover:text-white' : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-500 hover:bg-emerald-500 hover:text-white'}`}>
+                            {isAssigned ? 'Detach Unit' : 'Attach Call'}
+                          </button>
+                        )}
                       </div>
-                      {activeIncident && (isDispatch || unit.name === session.callsign) && (
-                        <button onClick={() => isAssigned ? unassignUnitFromCall(unit.name, activeIncident.id) : assignUnitToCall(unit.name, activeIncident.id)} className={`w-full py-2 rounded-lg border text-[9px] font-black uppercase transition-all mt-1 ${isAssigned ? 'bg-red-500/10 border-red-500/40 text-red-500 hover:bg-red-500' : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-500 hover:bg-emerald-500 hover:text-white'}`}>
-                          {isAssigned ? 'Detach' : 'Attach Call'}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+                    );
+                  })}
+                  {typedUnits.length === 0 && <div className="px-2 py-4 text-[9px] text-slate-800 uppercase font-bold italic">No {type} Units Active</div>}
+                </div>
+              );
+            })}
           </div>
         </aside>
 
+        {/* Main Content Area */}
         <main className={`${isMobileMode ? (mobileTab === 'UNITS' ? 'hidden' : 'flex') : 'flex'} flex-1 flex-col bg-[#020617] overflow-hidden`}>
+          {/* Incident Queue */}
           <div className={`${isMobileMode && mobileTab !== 'INCIDENTS' ? 'hidden' : 'flex'} h-44 shrink-0 border-b border-slate-800/60 p-6 flex gap-6 overflow-x-auto items-center custom-scrollbar`}>
             {incidents.filter(inc => inc.status === 'ACTIVE').map(incident => (
               <div key={incident.id} onClick={() => { setActiveIncidentId(incident.id); if (isMobileMode) setMobileTab('ACTIVE'); }} className={`w-80 shrink-0 p-6 rounded-[2rem] border cursor-pointer transition-all ${activeIncidentId === incident.id ? 'bg-blue-900/5 border-blue-500 shadow-xl scale-[1.02]' : 'bg-slate-900/30 border-slate-800/50 hover:bg-slate-900/40'}`}>
@@ -411,6 +478,7 @@ const App: React.FC = () => {
             {incidents.filter(inc => inc.status === 'ACTIVE').length === 0 && <div className="flex-1 flex flex-col items-center justify-center opacity-10 uppercase font-black tracking-[0.5em] text-[10px]">No Active Broadcasts</div>}
           </div>
 
+          {/* Call Editor / Active Detail */}
           <div className={`${isMobileMode && mobileTab !== 'ACTIVE' ? 'hidden' : 'flex'} flex-1 flex-col overflow-hidden relative`}>
             {activeIncident ? (
               <div className="flex-1 flex flex-col p-4 md:p-8 overflow-hidden animate-in fade-in slide-in-from-bottom-2">
@@ -421,7 +489,9 @@ const App: React.FC = () => {
                   </div>
                   {isDispatch && <button onClick={closeIncident} className="w-full md:w-auto bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all border border-red-500/20 shadow-xl">Close Incident</button>}
                 </div>
+                
                 <div className="flex-1 flex flex-col bg-slate-950/40 rounded-[2rem] border border-slate-800/40 overflow-hidden shadow-3xl backdrop-blur-xl">
+                  {/* Attached Units Bar */}
                   <div className="px-6 py-4 bg-slate-900/30 border-b border-slate-800/50 flex items-center gap-3 overflow-x-auto no-scrollbar">
                     <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest whitespace-nowrap">RESPONSE:</span>
                     <div className="flex gap-2">
@@ -430,9 +500,11 @@ const App: React.FC = () => {
                            <div className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[au.status].split(' ')[0]}`}></div>
                            <span className="text-[10px] font-black text-white">{au.name}</span>
                         </div>
-                      )) : <span className="text-[9px] font-black text-red-500/50 uppercase animate-pulse">Waiting for Units...</span>}
+                      )) : <span className="text-[9px] font-black text-red-500/50 uppercase animate-pulse">Waiting for Response...</span>}
                     </div>
                   </div>
+                  
+                  {/* Logs Section */}
                   <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-4 font-mono text-xs md:text-sm custom-scrollbar-v">
                     {JSON.parse(activeIncident.logs).map((log: IncidentLog, idx: number) => (
                       <div key={idx} className="flex gap-4 group animate-in fade-in slide-in-from-left-2">
@@ -441,8 +513,10 @@ const App: React.FC = () => {
                       </div>
                     ))}
                   </div>
+
+                  {/* Input Transmission */}
                   <div className="p-4 md:p-8 bg-slate-950/60 border-t border-slate-800/40 flex gap-3">
-                    <input type="text" value={logInput} onChange={(e) => setLogInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLog()} placeholder="Transmit message..." className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-5 py-4 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500 text-white transition-all" />
+                    <input type="text" value={logInput} onChange={(e) => setLogInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLog()} placeholder="Enter transmission..." className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-5 py-4 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500 text-white transition-all placeholder:text-slate-800" />
                     <button onClick={addLog} className="bg-blue-600 hover:bg-blue-500 px-8 rounded-2xl shadow-xl transition-all active:scale-95"><Icons.Send /></button>
                   </div>
                 </div>
@@ -457,24 +531,27 @@ const App: React.FC = () => {
         </main>
       </div>
 
+      {/* Mobile Bottom Navigation */}
       {isMobileMode && (
         <nav className="h-16 bg-slate-950 border-t border-slate-900 grid grid-cols-3 shrink-0 z-30">
-          <button onClick={() => setMobileTab('UNITS')} className={`flex flex-col items-center justify-center gap-1 ${mobileTab === 'UNITS' ? 'text-blue-400' : 'text-slate-700'}`}><Icons.Police /><span className="text-[8px] font-black uppercase">Units</span></button>
-          <button onClick={() => setMobileTab('INCIDENTS')} className={`flex flex-col items-center justify-center gap-1 ${mobileTab === 'INCIDENTS' ? 'text-blue-400' : 'text-slate-700'}`}><Icons.AlertCircle /><span className="text-[8px] font-black uppercase">Queue</span></button>
-          <button onClick={() => setMobileTab('ACTIVE')} className={`flex flex-col items-center justify-center gap-1 ${mobileTab === 'ACTIVE' ? 'text-blue-400' : 'text-slate-700'}`}><Icons.Plus /><span className="text-[8px] font-black uppercase">Editor</span></button>
+          <button onClick={() => setMobileTab('UNITS')} className={`flex flex-col items-center justify-center gap-1 ${mobileTab === 'UNITS' ? 'text-blue-400 font-black' : 'text-slate-700'}`}><Icons.Police /><span className="text-[8px] font-black uppercase">Roster</span></button>
+          <button onClick={() => setMobileTab('INCIDENTS')} className={`flex flex-col items-center justify-center gap-1 ${mobileTab === 'INCIDENTS' ? 'text-blue-400 font-black' : 'text-slate-700'}`}><Icons.AlertCircle /><span className="text-[8px] font-black uppercase">Queue</span></button>
+          <button onClick={() => setMobileTab('ACTIVE')} className={`flex flex-col items-center justify-center gap-1 ${mobileTab === 'ACTIVE' ? 'text-blue-400 font-black' : 'text-slate-700'}`}><Icons.Plus /><span className="text-[8px] font-black uppercase">Editor</span></button>
         </nav>
       )}
 
+      {/* New Incident Overlay */}
       {isCreatingCall && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#020617]/95 backdrop-blur-md p-4"><NewCallForm onCreate={createIncident} onCancel={() => setIsCreatingCall(false)} /></div>
       )}
 
+      {/* Persistence Footer */}
       <footer className="h-10 bg-slate-950 border-t border-slate-900 flex items-center px-4 md:px-8 justify-between shrink-0 text-[9px] font-mono tracking-widest text-slate-700 uppercase font-black z-20">
         <div className="flex gap-10 items-center">
-          <div className="flex items-center gap-2">LINKED: <span className="text-emerald-500">{roomId}</span></div>
-          <div className="hidden xs:block">PERSISTENCE: {isDispatch ? 'HQ_ACTIVE' : 'FIELD_LINKED'}</div>
+          <div className="flex items-center gap-2">NET_LINK: <span className="text-emerald-500">{roomId}</span></div>
+          <div className="hidden xs:block">PERSISTENCE: {isDispatch ? 'HQ_PRIMARY' : 'FIELD_LINKED'}</div>
         </div>
-        <div className="italic hidden sm:block">NEXUS V2.3 // REFRESH_HOTFIX</div>
+        <div className="italic hidden sm:block">NEXUS CAD // CROSS_TAB_SYNC_ENABLED // V2.4</div>
       </footer>
     </div>
   );
@@ -490,12 +567,12 @@ const NewCallForm: React.FC<{ onCreate: (type: string, loc: string, p: Priority)
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="space-y-2">
           <label className="text-[10px] font-black text-slate-600 uppercase">Call Type</label>
-          <select value={type} onChange={(e) => setType(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 font-black text-white outline-none appearance-none">
+          <select value={type} onChange={(e) => setType(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 font-black text-white outline-none appearance-none cursor-pointer">
             {CALL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
         <div className="space-y-2">
-          <label className="text-[10px] font-black text-slate-600 uppercase">Priority Level</label>
+          <label className="text-[10px] font-black text-slate-600 uppercase">Priority Status</label>
           <div className="grid grid-cols-2 gap-2">
             {Object.values(Priority).map(priority => (
               <button key={priority} onClick={() => setP(priority)} className={`py-4 rounded-xl border text-[9px] font-black uppercase transition-all ${p === priority ? 'bg-blue-600 border-blue-400 text-white shadow-lg' : 'bg-slate-950 border-slate-800 text-slate-700'}`}>{priority}</button>
@@ -504,13 +581,13 @@ const NewCallForm: React.FC<{ onCreate: (type: string, loc: string, p: Priority)
         </div>
       </div>
       <div className="space-y-2">
-        <label className="text-[10px] font-black text-slate-600 uppercase">Postal / Location</label>
-        <input type="text" placeholder="STREET / POSTAL / POI" value={loc} onChange={(e) => setLoc(e.target.value)} list="loc-suggestions" className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 font-black outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+        <label className="text-[10px] font-black text-slate-600 uppercase">Postal / Landmark</label>
+        <input type="text" placeholder="STREET / POSTAL / POI" value={loc} onChange={(e) => setLoc(e.target.value)} list="loc-suggestions" className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 font-black outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder:text-slate-900" />
         <datalist id="loc-suggestions">{ERLC_LOCATIONS.map(l => <option key={l} value={l} />)}</datalist>
       </div>
       <div className="flex gap-4 pt-4">
-        <button onClick={onCancel} className="flex-1 font-black text-[10px] text-slate-500 uppercase">Discard</button>
-        <button onClick={() => onCreate(type, loc, p)} className="flex-[3] bg-blue-600 hover:bg-blue-500 py-5 rounded-2xl font-black uppercase tracking-widest shadow-2xl active:scale-95 transition-all text-xs">Confirm Broadcast</button>
+        <button onClick={onCancel} className="flex-1 font-black text-[10px] text-slate-500 uppercase tracking-widest">Discard</button>
+        <button onClick={() => onCreate(type, loc, p)} className="flex-[3] bg-blue-600 hover:bg-blue-500 py-5 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl active:scale-95 transition-all text-xs">Authorize Broadcast</button>
       </div>
     </div>
   );
