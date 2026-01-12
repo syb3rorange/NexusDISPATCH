@@ -55,7 +55,8 @@ const App: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(() => {
-    return localStorage.getItem(STORAGE_KEY_AUTO_REFRESH) === 'true';
+    const saved = localStorage.getItem(STORAGE_KEY_AUTO_REFRESH);
+    return saved === null ? true : saved === 'true';
   });
   const [refreshInterval, setRefreshInterval] = useState<number>(() => {
     const saved = localStorage.getItem(STORAGE_KEY_REFRESH_INTERVAL);
@@ -154,8 +155,18 @@ const App: React.FC = () => {
     };
   }, [roomId, session?.role, activeIncidentId, isMobileMode]);
 
+  // --- AUTO REFRESH FIX WITH PAUSE ---
+  const handleManualRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    setLastSyncTime(Date.now());
+    setTimeout(() => {
+      window.location.reload();
+    }, 500);
+  }, []);
+
   useEffect(() => {
     let timer: number;
+    // Condition back to pausing when an activeIncidentId is present
     if (autoRefreshEnabled && !activeIncidentId) {
       timer = window.setInterval(() => {
         setTimeLeft(prev => {
@@ -170,7 +181,17 @@ const App: React.FC = () => {
       setTimeLeft(refreshInterval);
     }
     return () => clearInterval(timer);
-  }, [autoRefreshEnabled, refreshInterval, activeIncidentId]);
+  }, [autoRefreshEnabled, refreshInterval, handleManualRefresh, activeIncidentId]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_AUTO_REFRESH, autoRefreshEnabled.toString());
+  }, [autoRefreshEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_REFRESH_INTERVAL, refreshInterval.toString());
+    setTimeLeft(refreshInterval);
+  }, [refreshInterval]);
+  // --- END AUTO REFRESH FIX ---
 
   const handleLoginDispatch = () => {
     if (hasPersistentDispatch || dispatchPass === '10-4') {
@@ -200,13 +221,11 @@ const App: React.FC = () => {
     gun.get('nexus_cad_v7_final').get(roomId).get('units').get(callsign).put(newUnit);
   };
 
-  // Fix: Added handleJoinUnit to process onboarding field join
   const handleJoinUnit = () => {
     if (!onboardingData.roblox || !onboardingData.callsign) return;
     performJoin(onboardingData);
   };
 
-  // Fix: Added handleQuickJoin to resume session from local storage
   const handleQuickJoin = () => {
     if (savedProfile) {
       performJoin(savedProfile);
@@ -227,13 +246,6 @@ const App: React.FC = () => {
     gun.get('nexus_cad_v7_final').get(roomId).get('units').get(callsign).put(newUnit);
     setNewUnitData({ callsign: '', type: UnitType.POLICE });
     setIsAddingUnit(false);
-  };
-
-  const handleManualRefresh = () => {
-    setIsRefreshing(true);
-    setTimeout(() => {
-      window.location.reload();
-    }, 800);
   };
 
   const handleSignOut = () => {
@@ -306,7 +318,6 @@ const App: React.FC = () => {
       gun.get('nexus_cad_v7_final').get(roomId).get('incidents').get(activeIncidentId).get('assignedUnits').put(JSON.stringify(newList));
       updateUnitStatus(unitId, UnitStatus.EN_ROUTE);
       
-      // Auto-log the assignment
       let logs: IncidentLog[] = [];
       try { logs = JSON.parse(incident.logs); } catch(e) { logs = []; }
       const newLog = {
@@ -330,7 +341,6 @@ const App: React.FC = () => {
     gun.get('nexus_cad_v7_final').get(roomId).get('incidents').get(activeIncidentId).get('assignedUnits').put(JSON.stringify(newList));
     updateUnitStatus(unitId, UnitStatus.AVAILABLE);
 
-    // Auto-log the detachment
     let logs: IncidentLog[] = [];
     try { logs = JSON.parse(incident.logs); } catch(e) { logs = []; }
     const newLog = {
@@ -349,7 +359,6 @@ const App: React.FC = () => {
 
   const handlePurgeIncident = () => {
     if (!activeIncidentId) return;
-    // Clear units first
     let assigned: string[] = [];
     try { assigned = JSON.parse(incidentsMap[activeIncidentId].assignedUnits); } catch(e) {}
     assigned.forEach(uid => updateUnitStatus(uid, UnitStatus.AVAILABLE));
@@ -366,7 +375,6 @@ const App: React.FC = () => {
   };
 
   const renderUnitCard = (unit: Unit) => {
-    // Check if unit is assigned to current active incident
     let isAssignedToThis = false;
     if (activeIncidentId && incidentsMap[activeIncidentId]) {
       try {
@@ -464,6 +472,16 @@ const App: React.FC = () => {
             <button title="Manual Sync" onClick={handleManualRefresh} className={`p-2 rounded-lg hover:bg-slate-800 text-slate-500 transition-all ${isRefreshing ? 'animate-spin text-blue-500' : ''}`}><Icons.Refresh /></button>
             <div className="flex flex-col items-center justify-center min-w-[3.5rem]"><span className={`text-[9px] font-black font-mono leading-none ${activeIncidentId ? 'text-amber-500' : autoRefreshEnabled ? 'text-blue-400' : 'text-slate-700'}`}>{activeIncidentId ? 'PAUSED' : autoRefreshEnabled ? `${timeLeft}s` : '--'}</span></div>
             <button onClick={() => setShowRefreshSettings(!showRefreshSettings)} className={`p-2 rounded-lg hover:bg-slate-800 transition-all ${showRefreshSettings ? 'text-blue-500' : 'text-slate-500'}`} title="Auto-Refresh Settings"><Icons.Cpu /></button>
+            {showRefreshSettings && (
+              <div className="absolute top-14 right-0 w-64 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-3xl z-[70] animate-in fade-in slide-in-from-top-2">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-6">Auto-Refresh Engine</h3>
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between"><span className="text-xs font-bold text-slate-300">Enable Toggle</span><button onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)} className={`w-12 h-6 rounded-full transition-all relative ${autoRefreshEnabled ? 'bg-blue-600' : 'bg-slate-800'}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${autoRefreshEnabled ? 'left-7' : 'left-1'}`}></div></button></div>
+                  <div className="space-y-3"><div className="flex justify-between items-center"><span className="text-xs font-bold text-slate-300">Sync Interval</span><span className="text-xs font-black text-blue-400 font-mono">{refreshInterval}s</span></div><input type="range" min="5" max="60" step="5" value={refreshInterval} onChange={(e) => setRefreshInterval(parseInt(e.target.value, 10))} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600"/><div className="flex justify-between text-[8px] font-black text-slate-700 uppercase tracking-widest"><span>5s</span><span>60s</span></div></div>
+                  <button onClick={() => setShowRefreshSettings(false)} className="w-full py-3 bg-slate-800 hover:bg-slate-750 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all">Dismiss</button>
+                </div>
+              </div>
+            )}
           </div>
           <button onClick={() => setIsCreatingCall(true)} className="bg-blue-600 hover:bg-blue-500 px-4 md:px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg">New Broadcast</button>
           <button onClick={handleSignOut} className="text-[10px] font-black uppercase text-slate-600 hover:text-red-500 px-2 transition-colors">Sign Out</button>
@@ -507,7 +525,6 @@ const App: React.FC = () => {
           <div className="flex-1 flex overflow-hidden">
             {activeIncidentId && incidentsMap[activeIncidentId] ? (
               <div className="flex-1 flex overflow-hidden animate-in fade-in slide-in-from-bottom-2">
-                {/* Main Incident Area */}
                 <div className="flex-1 flex flex-col p-4 md:p-8 overflow-hidden">
                   <div className="flex justify-between items-start mb-6">
                     <div>
@@ -537,7 +554,6 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Tactical Roster Sidebar (Personnel attached to call) */}
                 <div className="w-80 border-l border-slate-800 bg-slate-900/20 p-6 flex flex-col shrink-0">
                    <div className="flex items-center justify-between mb-6">
                       <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Tactical Roster</h3>
@@ -566,11 +582,6 @@ const App: React.FC = () => {
                             </div>
                           );
                         });
-                      })()}
-                      {(() => {
-                         let assigned: any[] = [];
-                         try { assigned = JSON.parse(incidentsMap[activeIncidentId].assignedUnits); } catch(e) {}
-                         if (assigned.length === 0) return <div className="py-20 text-center opacity-10 text-[9px] font-black uppercase tracking-widest italic">No units attached</div>;
                       })()}
                    </div>
                 </div>
@@ -601,14 +612,12 @@ const App: React.FC = () => {
                       <Icons.Plus />
                    </button>
                  ))}
-                 {groupedUnits.field.length === 0 && <div className="text-center py-10 opacity-20 text-xs italic uppercase">No field units available</div>}
               </div>
               <button onClick={() => setIsAssigningUnit(false)} className="w-full py-4 text-slate-500 font-black text-[10px] uppercase tracking-widest hover:text-white shrink-0">Cancel</button>
            </div>
         </div>
       )}
 
-      {/* Manual Add Unit Modal */}
       {isAddingUnit && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-4">
            <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-8 md:p-12 w-full max-w-lg space-y-8 animate-in zoom-in-95 shadow-3xl">
@@ -644,7 +653,6 @@ const App: React.FC = () => {
 
       <footer className="h-10 md:h-12 bg-slate-950 border-t border-slate-900 flex items-center px-4 md:px-8 justify-between shrink-0 text-[10px] font-mono tracking-widest text-slate-700 uppercase font-black z-20">
         <div className="flex gap-4 md:gap-10 items-center"><div className="flex items-center gap-2 md:gap-3"><div key={lastSyncTime} className={`w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981] animate-pulse`}></div>SYNC_STATUS: ACTIVE</div><div className="hidden sm:flex items-center gap-3 text-slate-800 italic uppercase">FREQ_ID: {roomId}</div></div>
-        <div className="flex items-center gap-4"><div className="text-slate-800 font-black hidden xs:block uppercase">Nexus CAD // Operational Protocol Active</div></div>
       </footer>
     </div>
   );
