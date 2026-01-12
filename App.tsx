@@ -351,7 +351,6 @@ const App: React.FC = () => {
         </div>
         
         <div className="w-full max-w-2xl flex flex-col items-center py-12 space-y-12">
-          <div className="bg-blue-600 p-6 rounded-[2rem] shadow-2xl border border-white/20"><Icons.Police /></div>
           <h1 className="text-6xl font-black tracking-widest uppercase text-center">NEXUS<span className="text-blue-500">CAD</span></h1>
           <div className="grid grid-cols-1 gap-10 w-full">
             <div className="bg-slate-900/40 border border-slate-800 p-12 rounded-[3rem] flex flex-col shadow-inner">
