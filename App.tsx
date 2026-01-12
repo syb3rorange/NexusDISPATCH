@@ -238,6 +238,32 @@ const App: React.FC = () => {
     }
   };
 
+  const handleSignOut = useCallback(() => {
+    if (session?.callsign) {
+       // We only try to update status if we still have a connection to the roster node
+       gun.get('nexus_cad_v7_final').get(roomId).get('units').get(session.callsign).get('status').put(UnitStatus.OUT_OF_SERVICE);
+    }
+    localStorage.removeItem(STORAGE_KEY_SESSION_TYPE);
+    localStorage.removeItem(STORAGE_KEY_ACTIVE_INCIDENT);
+    localStorage.removeItem(STORAGE_KEY_MOBILE_TAB);
+    setSession(null);
+  }, [session, roomId]);
+
+  // Auto sign-out if unit is removed from roster by Dispatch
+  useEffect(() => {
+    if (session?.role === 'UNIT' && session.callsign) {
+      // If we are logged in as a unit, check if our ID still exists in the roster
+      const rosterEntries = Object.keys(unitsMap);
+      // Wait for at least one sync before judging
+      if (rosterEntries.length > 0) {
+        if (!unitsMap[session.callsign]) {
+          console.warn("Unit identity purged from roster. Redirecting to login.");
+          handleSignOut();
+        }
+      }
+    }
+  }, [unitsMap, session, handleSignOut]);
+
   const performJoin = (data: {roblox: string, callsign: string, type: UnitType}) => {
     const callsign = data.callsign.toUpperCase();
     setSession({ role: 'UNIT', username: data.roblox, callsign, unitType: data.type });
@@ -282,16 +308,6 @@ const App: React.FC = () => {
     gun.get('nexus_cad_v7_final').get(roomId).get('units').get(callsign).put(newUnit);
     setNewUnitData({ callsign: '', type: UnitType.POLICE });
     setIsAddingUnit(false);
-  };
-
-  const handleSignOut = () => {
-    if (session?.callsign) {
-       updateUnitStatus(session.callsign, UnitStatus.OUT_OF_SERVICE);
-    }
-    localStorage.removeItem(STORAGE_KEY_SESSION_TYPE);
-    localStorage.removeItem(STORAGE_KEY_ACTIVE_INCIDENT);
-    localStorage.removeItem(STORAGE_KEY_MOBILE_TAB);
-    setSession(null);
   };
 
   const updateUnitStatus = (unitId: string, status: UnitStatus) => {
@@ -406,6 +422,7 @@ const App: React.FC = () => {
 
   const removeUnit = (id: string) => {
     if (confirm(`Confirm removal of unit ${id} from roster?`)) {
+        // Purging from map
         gun.get('nexus_cad_v7_final').get(roomId).get('units').get(id).put(null);
     }
   };
@@ -450,7 +467,11 @@ const App: React.FC = () => {
           )}
           <div className="flex items-center justify-between text-[8px] font-mono uppercase italic">
               <span className="text-slate-700 truncate">Op: {unit.robloxUser}</span>
-              {session?.role === 'DISPATCH' && <button onClick={() => removeUnit(unit.id)} className="text-red-900 hover:text-red-500 transition-colors"><Icons.Trash /></button>}
+              {session?.role === 'DISPATCH' && (
+                <button onClick={() => removeUnit(unit.id)} className="text-red-900 hover:text-red-500 transition-all p-1 hover:scale-125">
+                  <Icons.Trash />
+                </button>
+              )}
           </div>
       </div>
     );
