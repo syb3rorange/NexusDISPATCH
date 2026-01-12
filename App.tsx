@@ -55,13 +55,11 @@ const App: React.FC = () => {
   const [isAssigningUnit, setIsAssigningUnit] = useState(false);
   const [newUnitData, setNewUnitData] = useState({ callsign: '', type: UnitType.POLICE });
   
-  // State for department-specific call creation
   const [newCallDept, setNewCallDept] = useState<UnitType>(UnitType.POLICE);
   const [newCallType, setNewCallType] = useState(DEPARTMENT_CALL_TYPES[UnitType.POLICE][0]);
   const [newLocation, setNewLocation] = useState('');
   const [newPriority, setNewPriority] = useState<Priority>(Priority.MEDIUM);
 
-  // Sync call type selection when department changes in modal
   useEffect(() => {
     if (DEPARTMENT_CALL_TYPES[newCallDept]) {
       setNewCallType(DEPARTMENT_CALL_TYPES[newCallDept][0]);
@@ -240,7 +238,6 @@ const App: React.FC = () => {
 
   const handleSignOut = useCallback(() => {
     if (session?.callsign) {
-       // We only try to update status if we still have a connection to the roster node
        gun.get('nexus_cad_v7_final').get(roomId).get('units').get(session.callsign).get('status').put(UnitStatus.OUT_OF_SERVICE);
     }
     localStorage.removeItem(STORAGE_KEY_SESSION_TYPE);
@@ -249,12 +246,9 @@ const App: React.FC = () => {
     setSession(null);
   }, [session, roomId]);
 
-  // Auto sign-out if unit is removed from roster by Dispatch
   useEffect(() => {
     if (session?.role === 'UNIT' && session.callsign) {
-      // If we are logged in as a unit, check if our ID still exists in the roster
       const rosterEntries = Object.keys(unitsMap);
-      // Wait for at least one sync before judging
       if (rosterEntries.length > 0) {
         if (!unitsMap[session.callsign]) {
           console.warn("Unit identity purged from roster. Redirecting to login.");
@@ -422,7 +416,6 @@ const App: React.FC = () => {
 
   const removeUnit = (id: string) => {
     if (confirm(`Confirm removal of unit ${id} from roster?`)) {
-        // Purging from map
         gun.get('nexus_cad_v7_final').get(roomId).get('units').get(id).put(null);
     }
   };
@@ -461,14 +454,14 @@ const App: React.FC = () => {
             <div className={`text-[8px] px-2 py-0.5 rounded-lg border font-black ${STATUS_COLORS[unit.status]}`}>{unit.status.replace(/_/g, ' ')}</div>
           </div>
           {(session?.role === 'DISPATCH' || unit.name === session?.callsign) && (
-            <div className="grid grid-cols-5 gap-1 mb-2">
-              {Object.values(UnitStatus).map(s => <button key={s} onClick={() => updateUnitStatus(unit.id, s)} title={s} className={`text-[9px] py-2 rounded-lg border font-black transition-colors ${unit.status === s ? 'bg-slate-800 border-slate-600 text-white shadow-inner' : 'bg-slate-950/40 border-slate-800 text-slate-700 hover:text-slate-500'}`}>{s.charAt(0)}</button>)}
+            <div className="grid grid-cols-5 gap-1.5 mb-2">
+              {Object.values(UnitStatus).map(s => <button key={s} onClick={() => updateUnitStatus(unit.id, s)} title={s} className={`text-[10px] py-3 rounded-lg border font-black transition-colors ${unit.status === s ? 'bg-slate-800 border-slate-600 text-white shadow-inner' : 'bg-slate-950/40 border-slate-800 text-slate-700 hover:text-slate-500'}`}>{s.charAt(0)}</button>)}
             </div>
           )}
           <div className="flex items-center justify-between text-[8px] font-mono uppercase italic">
-              <span className="text-slate-700 truncate">Op: {unit.robloxUser}</span>
+              <span className="text-slate-700 truncate pr-2">Op: {unit.robloxUser}</span>
               {session?.role === 'DISPATCH' && (
-                <button onClick={() => removeUnit(unit.id)} className="text-red-900 hover:text-red-500 transition-all p-1 hover:scale-125">
+                <button onClick={() => removeUnit(unit.id)} className="text-red-900 hover:text-red-500 transition-all p-2 -mr-2 hover:scale-125">
                   <Icons.Trash />
                 </button>
               )}
@@ -482,7 +475,7 @@ const App: React.FC = () => {
       <div className="h-screen w-screen bg-[#020617] flex flex-col items-center justify-center p-4 text-slate-100 relative overflow-hidden">
         <div className="absolute top-4 right-4 flex items-center gap-2 bg-slate-950/60 p-2 rounded-xl border border-slate-800 z-50">
            <div className={`w-2 h-2 rounded-full ${autoRefreshEnabled ? 'bg-blue-500 animate-pulse shadow-[0_0_8px_#3b82f6]' : 'bg-slate-700'}`}></div>
-           <span className="text-[9px] font-black font-mono text-slate-500">{autoRefreshEnabled ? `IDLE SYNC: ${Math.floor(timeLeft / 60)}m ${timeLeft % 60}s` : 'SYNC: OFF'}</span>
+           <span className="text-[9px] font-black font-mono text-slate-500">{autoRefreshEnabled ? `${Math.floor(timeLeft / 60)}m ${timeLeft % 60}s` : 'SYNC: OFF'}</span>
         </div>
 
         <div className="z-10 w-full max-w-5xl flex flex-col items-center max-h-full overflow-y-auto py-10 px-4 custom-scrollbar">
@@ -508,7 +501,7 @@ const App: React.FC = () => {
                 <input type="text" placeholder="Callsign" value={onboardingData.callsign} onChange={(e) => setOnboardingData(p => ({...p, callsign: e.target.value}))} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 uppercase font-mono outline-none focus:ring-2 focus:ring-emerald-500 text-sm shadow-inner" />
                 <div className="grid grid-cols-3 gap-2">
                     {[UnitType.POLICE, UnitType.FIRE, UnitType.DOT].map(t => (
-                        <button key={t} onClick={() => setOnboardingData(p => ({...p, type: t}))} className={`py-3 rounded-xl border text-[9px] font-black transition-all ${onboardingData.type === t ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-slate-950 border-slate-800 text-slate-600'}`}>{t}</button>
+                        <button key={t} onClick={() => setOnboardingData(p => ({...p, type: t}))} className={`py-3 rounded-xl border text-[9px] font-black transition-all ${onboardingData.type === t ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-slate-950 border-slate-800 text-slate-700'}`}>{t}</button>
                     ))}
                 </div>
               </div>
@@ -537,36 +530,48 @@ const App: React.FC = () => {
     );
   }
 
+  const headerBorderColor = session.role === 'DISPATCH' ? 'border-blue-500/20' : 
+                          session.unitType === UnitType.FIRE ? 'border-red-500/20' :
+                          session.unitType === UnitType.DOT ? 'border-yellow-500/20' : 'border-blue-500/20';
+
+  const brandIconBg = session.role === 'DISPATCH' ? 'bg-blue-600' : 
+                      session.unitType === UnitType.FIRE ? 'bg-red-600' :
+                      session.unitType === UnitType.DOT ? 'bg-yellow-600' : 'bg-blue-600';
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-[#020617] text-slate-100 font-sans selection:bg-blue-500/30">
-      <header className={`h-16 shrink-0 ${session.role === 'DISPATCH' ? 'bg-slate-900/50 border-blue-500/20' : 'bg-slate-900/50 border-emerald-500/20'} border-b flex items-center justify-between px-4 md:px-8 backdrop-blur-xl z-20`}>
+      <header className={`h-16 shrink-0 bg-slate-900/50 ${headerBorderColor} border-b flex items-center justify-between px-4 md:px-8 backdrop-blur-xl z-20`}>
         <div className="flex items-center gap-3 md:gap-6">
-          <div className={`${session.role === 'DISPATCH' ? 'bg-blue-600 shadow-blue-500/40' : 'bg-emerald-600 shadow-emerald-500/40'} p-2 rounded-xl border border-white/20 shadow-lg`}><Icons.Police /></div>
-          <h1 className="text-lg md:text-xl font-black uppercase tracking-tighter hidden sm:block">Nexus<span className={session.role === 'DISPATCH' ? 'text-blue-500' : 'text-emerald-500'}>{session.role}</span></h1>
+          <div className={`${brandIconBg} p-2 rounded-xl border border-white/20 shadow-lg`}>
+            {session.unitType === UnitType.FIRE ? <Icons.Fire /> : session.unitType === UnitType.DOT ? <Icons.DOT /> : <Icons.Police />}
+          </div>
+          <h1 className="text-base md:text-xl font-black uppercase tracking-tighter truncate max-w-[120px] sm:max-w-none">
+            Nexus
+            <span className={
+              session.role === 'DISPATCH' ? 'text-blue-500' : 
+              session.unitType === UnitType.FIRE ? 'text-red-500' : 
+              session.unitType === UnitType.DOT ? 'text-yellow-500' : 'text-blue-500'
+            }>
+              {session.role === 'DISPATCH' ? ' Dispatch' : (
+                session.unitType === UnitType.POLICE ? ' PD' :
+                session.unitType === UnitType.FIRE ? ' Fire' :
+                session.unitType === UnitType.DOT ? ' Dot' : ' Unit'
+              )}
+            </span>
+          </h1>
         </div>
         <div className="flex items-center gap-2 md:gap-4 relative">
-          <div className="flex items-center gap-1 bg-slate-950/40 border border-slate-800 rounded-xl p-1 pr-3">
+          <div className="flex items-center gap-0.5 bg-slate-950/40 border border-slate-800 rounded-xl p-0.5 pr-2">
             <button title={`Current: ${viewMode} - Click to Cycle`} onClick={toggleViewMode} className="p-2 rounded-lg hover:bg-slate-800 text-slate-500 transition-all flex items-center gap-2">
                {viewMode === 'DESKTOP' ? <Icons.Monitor /> : viewMode === 'MOBILE' ? <Icons.Smartphone /> : <div className="relative"><Icons.Monitor /><div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full"></div></div>}
                <span className="text-[8px] font-black uppercase hidden lg:inline">{viewMode}</span>
             </button>
-            <div className="w-px h-4 bg-slate-800 mx-1"></div>
+            <div className="w-px h-4 bg-slate-800 mx-1 hidden sm:block"></div>
             <button title="Manual Sync" onClick={handleManualRefresh} className={`p-2 rounded-lg hover:bg-slate-800 text-slate-500 transition-all ${isRefreshing ? 'animate-spin text-blue-500' : ''}`}><Icons.Refresh /></button>
-            <div className="flex flex-col items-center justify-center min-w-[3.5rem]"><span className={`text-[9px] font-black font-mono leading-none ${isInputtingAction ? 'text-amber-500' : autoRefreshEnabled ? 'text-blue-400' : 'text-slate-700'}`}>{isInputtingAction ? 'PAUSED' : autoRefreshEnabled ? `${timeLeft}s` : '--'}</span></div>
+            <div className="flex flex-col items-center justify-center min-w-[3rem]"><span className={`text-[9px] font-black font-mono leading-none ${isInputtingAction ? 'text-amber-500' : autoRefreshEnabled ? 'text-blue-400' : 'text-slate-700'}`}>{isInputtingAction ? 'PAUSED' : autoRefreshEnabled ? `${timeLeft}s` : '--'}</span></div>
             <button onClick={() => setShowRefreshSettings(!showRefreshSettings)} className={`p-2 rounded-lg hover:bg-slate-800 transition-all ${showRefreshSettings ? 'text-blue-500' : 'text-slate-500'}`} title="Auto-Refresh Settings"><Icons.Cpu /></button>
-            {showRefreshSettings && (
-              <div className="absolute top-14 right-0 w-64 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-3xl z-[70] animate-in fade-in slide-in-from-top-2">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-6">Auto-Refresh Engine</h3>
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between"><span className="text-xs font-bold text-slate-300">Enable Toggle</span><button onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)} className={`w-12 h-6 rounded-full transition-all relative ${autoRefreshEnabled ? 'bg-blue-600' : 'bg-slate-800'}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${autoRefreshEnabled ? 'left-7' : 'left-1'}`}></div></button></div>
-                  <div className="space-y-3"><div className="flex justify-between items-center"><span className="text-xs font-bold text-slate-300">Sync Interval</span><span className="text-xs font-black text-blue-400 font-mono">{refreshInterval}s</span></div><input type="range" min="5" max="60" step="5" value={refreshInterval} onChange={(e) => setRefreshInterval(parseInt(e.target.value, 10))} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600"/><div className="flex justify-between text-[8px] font-black text-slate-700 uppercase tracking-widest"><span>5s</span><span>60s</span></div></div>
-                  <button onClick={() => setShowRefreshSettings(false)} className="w-full py-3 bg-slate-800 hover:bg-slate-750 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all">Dismiss</button>
-                </div>
-              </div>
-            )}
           </div>
-          <button onClick={() => setIsCreatingCall(true)} className="bg-blue-600 hover:bg-blue-500 px-4 md:px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg">New Broadcast</button>
-          <button onClick={handleSignOut} className="text-[10px] font-black uppercase text-slate-600 hover:text-red-500 px-2 transition-colors">Sign Out</button>
+          <button onClick={() => setIsCreatingCall(true)} className="bg-blue-600 hover:bg-blue-500 px-3 md:px-6 py-2.5 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest shadow-lg active:scale-95 transition-all">Broadcast</button>
         </div>
       </header>
       
@@ -576,7 +581,7 @@ const App: React.FC = () => {
             <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Node Roster</h2>
             {session.role === 'DISPATCH' && <button onClick={() => setIsAddingUnit(true)} className="bg-slate-800 hover:bg-slate-700 p-2 rounded-lg transition-all text-slate-300"><Icons.Plus /></button>}
           </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-8 custom-scrollbar pb-20">
+          <div className="flex-1 overflow-y-auto p-4 space-y-8 custom-scrollbar pb-24">
             {groupedUnits.field.length > 0 && (
                 <div className="space-y-3">
                     <h3 className="text-[9px] font-black text-emerald-500/60 uppercase tracking-widest px-2">Active Field Assets ({groupedUnits.field.length})</h3>
@@ -593,12 +598,12 @@ const App: React.FC = () => {
         </aside>
 
         <section className={`flex-1 flex flex-col bg-[#020617] overflow-hidden ${effectiveIsMobile && mobileTab !== 'INCIDENTS' && mobileTab !== 'ACTIVE' ? 'hidden' : 'flex'}`}>
-          <div className={`h-44 shrink-0 border-b border-slate-800/60 p-6 gap-6 overflow-x-auto items-center custom-scrollbar flex ${effectiveIsMobile && mobileTab !== 'INCIDENTS' ? 'hidden' : 'flex'}`}>
+          <div className={`h-40 sm:h-44 shrink-0 border-b border-slate-800/60 p-4 sm:p-6 gap-4 sm:gap-6 overflow-x-auto items-center custom-scrollbar flex ${effectiveIsMobile && mobileTab !== 'INCIDENTS' ? 'hidden' : 'flex'}`}>
             {incidents.map(incident => (
-              <div key={incident.id} onClick={() => { setActiveIncidentId(incident.id); if (effectiveIsMobile) setMobileTab('ACTIVE'); }} className={`w-80 shrink-0 p-6 rounded-[2.5rem] border cursor-pointer transition-all relative ${activeIncidentId === incident.id ? 'bg-blue-900/5 border-blue-500 shadow-2xl scale-[1.02]' : 'bg-slate-900/30 border-slate-800/50 hover:bg-slate-900/40 hover:border-slate-700'}`}>
-                <div className="flex justify-between items-start mb-4"><span className="text-[10px] font-mono font-bold text-slate-600">{incident.id}</span><div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div><span className={`text-[10px] uppercase font-black tracking-widest ${PRIORITY_COLORS[incident.priority]}`}>{incident.priority}</span></div></div>
-                <div className="font-black text-sm truncate uppercase tracking-wide">{incident.callType}</div>
-                <div className="text-[11px] text-slate-500 truncate mb-5 italic">Loc: {incident.location}</div>
+              <div key={incident.id} onClick={() => { setActiveIncidentId(incident.id); if (effectiveIsMobile) setMobileTab('ACTIVE'); }} className={`w-72 sm:w-80 shrink-0 p-5 sm:p-6 rounded-[2.5rem] border cursor-pointer transition-all relative ${activeIncidentId === incident.id ? 'bg-blue-900/5 border-blue-500 shadow-2xl scale-[1.02]' : 'bg-slate-900/30 border-slate-800/50 hover:bg-slate-900/40 hover:border-slate-700'}`}>
+                <div className="flex justify-between items-start mb-3 sm:mb-4"><span className="text-[10px] font-mono font-bold text-slate-600">{incident.id}</span><div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div><span className={`text-[10px] uppercase font-black tracking-widest ${PRIORITY_COLORS[incident.priority]}`}>{incident.priority}</span></div></div>
+                <div className="font-black text-xs sm:text-sm truncate uppercase tracking-wide">{incident.callType}</div>
+                <div className="text-[10px] sm:text-[11px] text-slate-500 truncate mb-3 sm:mb-5 italic">Loc: {incident.location}</div>
               </div>
             ))}
             {incidents.length === 0 && <div className="flex-1 flex items-center justify-center opacity-20 text-[10px] font-black uppercase tracking-[0.5em] italic">Operational Silence</div>}
@@ -607,31 +612,31 @@ const App: React.FC = () => {
           <div className="flex-1 flex overflow-hidden">
             {activeIncidentId && incidentsMap[activeIncidentId] ? (
               <div className="flex-1 flex overflow-hidden animate-in fade-in slide-in-from-bottom-2">
-                <div className="flex-1 flex flex-col p-4 md:p-8 overflow-hidden">
-                  <div className="flex justify-between items-start mb-6 shrink-0">
-                    <div className="max-w-[70%]">
-                      <h2 className="text-2xl md:text-5xl font-black text-white uppercase tracking-tighter mb-2 break-words leading-none">{incidentsMap[activeIncidentId].callType}</h2>
-                      <div className="text-[11px] text-slate-500 uppercase tracking-[0.3em] font-black italic">Target: {incidentsMap[activeIncidentId].location}</div>
+                <div className="flex-1 flex flex-col p-4 sm:p-6 md:p-8 overflow-hidden">
+                  <div className="flex justify-between items-start mb-4 sm:mb-6 shrink-0 gap-4">
+                    <div className="flex-1 min-w-0">
+                      <h2 className="text-xl sm:text-3xl md:text-5xl font-black text-white uppercase tracking-tighter mb-1 sm:mb-2 truncate leading-tight">{incidentsMap[activeIncidentId].callType}</h2>
+                      <div className="text-[9px] sm:text-[11px] text-slate-500 uppercase tracking-[0.2em] sm:tracking-[0.3em] font-black italic truncate">Target: {incidentsMap[activeIncidentId].location}</div>
                     </div>
-                    <div className="flex gap-2">
-                      <button onClick={handleMinimizeIncident} className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 md:px-4 py-2 md:py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all border border-slate-700 flex items-center gap-2 shadow-xl"><Icons.X /> Hide</button>
-                      {session?.role === 'DISPATCH' && <button onClick={handlePurgeIncident} className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-3 md:px-6 py-2 md:py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all border border-red-500/20 shadow-xl flex items-center gap-2"><Icons.Trash /> Purge</button>}
+                    <div className="flex gap-1.5 sm:gap-2 shrink-0">
+                      <button onClick={handleMinimizeIncident} className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 sm:py-3 rounded-2xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all border border-slate-700 flex items-center gap-1.5 sm:gap-2 shadow-xl active:scale-95"><Icons.X /> <span className="hidden xs:inline">Hide</span></button>
+                      {session?.role === 'DISPATCH' && <button onClick={handlePurgeIncident} className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-3 py-2 sm:py-3 rounded-2xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all border border-red-500/20 shadow-xl flex items-center gap-1.5 sm:gap-2 active:scale-95"><Icons.Trash /> <span className="hidden xs:inline">Purge</span></button>}
                     </div>
                   </div>
 
                   <div className="flex-1 flex flex-col bg-slate-950/40 rounded-[2rem] border border-slate-800/40 overflow-hidden shadow-3xl backdrop-blur-xl">
-                    <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 font-mono text-xs md:text-sm custom-scrollbar">
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 font-mono text-[11px] sm:text-sm custom-scrollbar">
                       {(() => {
                         let logs: IncidentLog[] = [];
                         try { logs = JSON.parse(incidentsMap[activeIncidentId].logs); } catch(e) {}
                         return logs.map((log, idx) => (
-                          <div key={idx} className="flex gap-2 md:gap-4 group"><span className="text-slate-800 font-black text-[10px] mt-1 shrink-0">[{log.timestamp}]</span><div className="flex-1"><span className={`font-black mr-2 md:mr-4 uppercase tracking-widest ${log.sender.includes('DISPATCH') ? 'text-blue-500' : 'text-emerald-500'}`}>{log.sender}:</span><span className="text-slate-400 break-words">{log.message}</span></div></div>
+                          <div key={idx} className="flex gap-2 sm:gap-4 group"><span className="text-slate-800 font-black text-[9px] sm:text-[10px] mt-1 shrink-0">[{log.timestamp}]</span><div className="flex-1"><span className={`font-black mr-2 uppercase tracking-widest ${log.sender.includes('DISPATCH') ? 'text-blue-500' : 'text-emerald-500'}`}>{log.sender}:</span><span className="text-slate-400 break-words">{log.message}</span></div></div>
                         ));
                       })()}
                     </div>
-                    <div className="p-4 md:p-6 bg-slate-950/60 border-t border-slate-800/40 flex gap-2 md:gap-4">
-                      <input ref={logInputRef} type="text" value={logInput} onChange={(e) => setLogInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddLog()} placeholder="Enter report..." className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-4 md:px-6 py-3 md:py-4 text-xs md:text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 text-white shadow-inner" />
-                      <button onClick={handleAddLog} className="bg-blue-600 hover:bg-blue-500 p-3 md:p-4 rounded-2xl shadow-xl transition-all shrink-0"><Icons.Send /></button>
+                    <div className="p-4 sm:p-6 bg-slate-950/60 border-t border-slate-800/40 flex gap-2 sm:gap-4">
+                      <input ref={logInputRef} type="text" value={logInput} onChange={(e) => setLogInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddLog()} placeholder="Enter report..." className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 text-white shadow-inner" />
+                      <button onClick={handleAddLog} className="bg-blue-600 hover:bg-blue-500 p-3 sm:p-4 rounded-2xl shadow-xl transition-all shrink-0 active:scale-95"><Icons.Send /></button>
                     </div>
                   </div>
                 </div>
@@ -639,7 +644,7 @@ const App: React.FC = () => {
                 <div className={`${effectiveIsMobile ? 'hidden' : 'w-80'} border-l border-slate-800 bg-slate-900/20 p-6 flex flex-col shrink-0 overflow-hidden`}>
                    <div className="flex items-center justify-between mb-6">
                       <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Tactical Roster</h3>
-                      {session?.role === 'DISPATCH' && <button onClick={() => setIsAssigningUnit(true)} className="p-2 bg-blue-600 rounded-lg hover:bg-blue-500 transition-all text-white"><Icons.Plus /></button>}
+                      {session?.role === 'DISPATCH' && <button onClick={() => setIsAssigningUnit(true)} className="p-2 bg-blue-600 rounded-lg hover:bg-blue-500 transition-all text-white active:scale-95"><Icons.Plus /></button>}
                    </div>
                    <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-2">
                       {(() => {
@@ -656,7 +661,7 @@ const App: React.FC = () => {
                                      <div className={iconColor}>{u.type === UnitType.POLICE ? <Icons.Police /> : u.type === UnitType.FIRE ? <Icons.Fire /> : <Icons.DOT />}</div>
                                      <span className="font-mono font-black text-xs text-white">{u.name}</span>
                                   </div>
-                                  {session?.role === 'DISPATCH' && <button onClick={() => handleDetachUnit(uid)} className="text-slate-700 hover:text-red-500"><Icons.X /></button>}
+                                  {session?.role === 'DISPATCH' && <button onClick={() => handleDetachUnit(uid)} className="text-slate-700 hover:text-red-500 p-1 active:scale-125 transition-all"><Icons.X /></button>}
                                </div>
                                <div className="flex items-center justify-between">
                                   <span className={`text-[8px] px-2 py-0.5 rounded border font-black ${STATUS_COLORS[u.status]}`}>{u.status}</span>
@@ -669,116 +674,117 @@ const App: React.FC = () => {
                    </div>
                 </div>
               </div>
-            ) : <div className="flex-1 flex flex-col items-center justify-center opacity-10"><Icons.Police /><div className="text-2xl font-black uppercase tracking-[0.5em] text-white mt-8">System Idle</div></div>}
+            ) : <div className="flex-1 flex flex-col items-center justify-center opacity-10"><Icons.Police /><div className="text-xl sm:text-2xl font-black uppercase tracking-[0.5em] text-white mt-8 text-center px-4">System Idle</div></div>}
           </div>
         </section>
       </div>
 
       {effectiveIsMobile && (
-        <nav className="h-16 bg-slate-900 border-t border-slate-800 flex items-center justify-around px-4 shrink-0 z-30">
-          <button onClick={() => setMobileTab('UNITS')} className={`flex flex-col items-center gap-1 transition-all ${mobileTab === 'UNITS' ? 'text-blue-400 scale-110' : 'text-slate-600'}`}>
+        <nav className="h-20 bg-slate-900 border-t border-slate-800 flex items-center justify-around px-4 shrink-0 z-30 pb-2">
+          <button onClick={() => setMobileTab('UNITS')} className={`flex flex-col items-center gap-1.5 transition-all w-20 ${mobileTab === 'UNITS' ? 'text-blue-400 scale-110' : 'text-slate-600'}`}>
             <Icons.Police />
-            <span className="text-[9px] font-black uppercase">Units</span>
+            <span className="text-[10px] font-black uppercase tracking-widest">Units</span>
           </button>
-          <button onClick={() => setMobileTab('INCIDENTS')} className={`flex flex-col items-center gap-1 transition-all ${mobileTab === 'INCIDENTS' ? 'text-blue-400 scale-110' : 'text-slate-600'}`}>
+          <button onClick={() => setMobileTab('INCIDENTS')} className={`flex flex-col items-center gap-1.5 transition-all w-20 ${mobileTab === 'INCIDENTS' ? 'text-blue-400 scale-110' : 'text-slate-600'}`}>
             <Icons.Fire />
-            <span className="text-[9px] font-black uppercase">Calls</span>
+            <span className="text-[10px] font-black uppercase tracking-widest">Calls</span>
           </button>
-          <button onClick={() => setMobileTab('ACTIVE')} className={`flex flex-col items-center gap-1 transition-all ${mobileTab === 'ACTIVE' ? 'text-emerald-400 scale-110' : 'text-slate-600'} ${!activeIncidentId ? 'opacity-30 grayscale cursor-not-allowed' : ''}`}>
+          <button onClick={() => setMobileTab('ACTIVE')} className={`flex flex-col items-center gap-1.5 transition-all w-20 ${mobileTab === 'ACTIVE' ? 'text-emerald-400 scale-110' : 'text-slate-600'} ${!activeIncidentId ? 'opacity-20 grayscale cursor-not-allowed' : ''}`}>
             <Icons.Send />
-            <span className="text-[9px] font-black uppercase">Action</span>
+            <span className="text-[10px] font-black uppercase tracking-widest">Action</span>
           </button>
         </nav>
       )}
 
       {isAssigningUnit && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-4">
-           <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-8 w-full max-w-lg space-y-8 animate-in zoom-in-95 shadow-3xl max-h-[80vh] flex flex-col">
-              <h2 className="text-xl font-black uppercase tracking-widest text-white shrink-0">Attach Asset to Scene</h2>
-              <div className="flex-1 overflow-y-auto space-y-2 p-2 custom-scrollbar">
+           <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-6 sm:p-8 w-full max-w-[calc(100vw-2rem)] md:max-w-lg space-y-6 sm:space-y-8 animate-in zoom-in-95 shadow-3xl max-h-[85vh] flex flex-col">
+              <h2 className="text-lg sm:text-xl font-black uppercase tracking-widest text-white shrink-0">Attach Asset</h2>
+              <div className="flex-1 overflow-y-auto space-y-2 p-1 custom-scrollbar">
                  {groupedUnits.field.filter(u => {
                     let assigned: string[] = [];
                     try { assigned = JSON.parse(incidentsMap[activeIncidentId || '']?.assignedUnits || '[]'); } catch(e) {}
                     return !assigned.includes(u.id);
                  }).map(u => (
-                   <button key={u.id} onClick={() => handleAssignUnit(u.id)} className={`w-full bg-slate-950 hover:bg-slate-800 border-2 ${u.type === UnitType.POLICE ? 'border-blue-500/30' : u.type === UnitType.FIRE ? 'border-red-500/30' : 'border-yellow-500/30'} p-4 rounded-2xl flex items-center justify-between transition-all group`}>
+                   <button key={u.id} onClick={() => handleAssignUnit(u.id)} className={`w-full bg-slate-950 hover:bg-slate-800 border-2 ${u.type === UnitType.POLICE ? 'border-blue-500/30' : u.type === UnitType.FIRE ? 'border-red-500/30' : 'border-yellow-500/30'} p-4 rounded-2xl flex items-center justify-between transition-all group active:scale-[0.98]`}>
                       <div className="flex items-center gap-4">
                          <div className={u.type === UnitType.POLICE ? 'text-blue-500' : u.type === UnitType.FIRE ? 'text-red-500' : 'text-yellow-500'}>
                             {u.type === UnitType.POLICE ? <Icons.Police /> : u.type === UnitType.FIRE ? <Icons.Fire /> : <Icons.DOT />}
                          </div>
                          <div className="text-left">
                             <div className="font-black text-white text-sm">{u.name}</div>
-                            <div className="text-[9px] text-slate-600 uppercase font-mono">{u.status} // {u.robloxUser}</div>
+                            <div className="text-[9px] text-slate-600 uppercase font-mono">{u.status}</div>
                          </div>
                       </div>
                       <Icons.Plus />
                    </button>
                  ))}
+                 {groupedUnits.field.length === 0 && <div className="text-center py-10 opacity-30 text-[10px] font-black uppercase italic">No Units Available</div>}
               </div>
-              <button onClick={() => setIsAssigningUnit(false)} className="w-full py-4 text-slate-500 font-black text-[10px] uppercase tracking-widest hover:text-white shrink-0">Cancel</button>
+              <button onClick={() => setIsAssigningUnit(false)} className="w-full py-4 text-slate-500 font-black text-[11px] uppercase tracking-widest hover:text-white shrink-0 active:scale-95">Cancel</button>
            </div>
         </div>
       )}
 
       {isAddingUnit && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-4">
-           <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-8 md:p-12 w-full max-w-lg space-y-8 animate-in zoom-in-95 shadow-3xl">
-              <h2 className="text-xl font-black uppercase tracking-widest text-white flex items-center gap-3"><Icons.Plus /> Manual Onboarding</h2>
+           <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-8 md:p-12 w-full max-w-[calc(100vw-2rem)] md:max-w-lg space-y-8 animate-in zoom-in-95 shadow-3xl">
+              <h2 className="text-xl font-black uppercase tracking-widest text-white flex items-center gap-3"><Icons.Plus /> Manual Entry</h2>
               <div className="space-y-6">
-                 <div className="space-y-2"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Callsign</label><input type="text" value={newUnitData.callsign} onChange={(e) => setNewUnitData(p => ({...p, callsign: e.target.value}))} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 uppercase font-mono text-white outline-none focus:ring-2 focus:ring-emerald-500" placeholder="E.G. 1L-10" /></div>
+                 <div className="space-y-2"><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Callsign</label><input type="text" value={newUnitData.callsign} onChange={(e) => setNewUnitData(p => ({...p, callsign: e.target.value}))} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 uppercase font-mono text-white outline-none focus:ring-2 focus:ring-emerald-500 text-lg" placeholder="E.G. 1L-10" /></div>
                  <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Unit Type</label>
                     <div className="grid grid-cols-3 gap-2">
                         {[UnitType.POLICE, UnitType.FIRE, UnitType.DOT].map(t => (
-                            <button key={t} onClick={() => setNewUnitData(p => ({...p, type: t}))} className={`py-3 rounded-xl border text-[9px] font-black transition-all ${newUnitData.type === t ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-slate-950 border-slate-800 text-slate-600'}`}>{t}</button>
+                            <button key={t} onClick={() => setNewUnitData(p => ({...p, type: t}))} className={`py-4 rounded-xl border text-[10px] font-black transition-all active:scale-95 ${newUnitData.type === t ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-slate-950 border-slate-800 text-slate-600'}`}>{t}</button>
                         ))}
                     </div>
                  </div>
               </div>
-              <div className="flex gap-4 pt-4"><button onClick={() => setIsAddingUnit(false)} className="flex-1 font-black text-[11px] text-slate-500 uppercase tracking-widest hover:text-white">Cancel</button><button onClick={handleManualAddUnit} className="flex-[2] bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-2xl transition-all">Add to Roster</button></div>
+              <div className="flex gap-4 pt-4"><button onClick={() => setIsAddingUnit(false)} className="flex-1 font-black text-[11px] text-slate-500 uppercase tracking-widest hover:text-white active:scale-95">Cancel</button><button onClick={handleManualAddUnit} className="flex-[2] bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-2xl transition-all active:scale-95">Add Unit</button></div>
            </div>
         </div>
       )}
 
       {isCreatingCall && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-4 md:p-8">
-          <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-8 md:p-12 w-full max-w-2xl space-y-8 animate-in zoom-in-95 shadow-3xl max-h-[90vh] overflow-y-auto custom-scrollbar">
-             <div className="grid md:grid-cols-2 gap-6 md:gap-8">
-                <div className="space-y-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-6 sm:p-10 md:p-12 w-full max-w-[calc(100vw-2rem)] md:max-w-2xl space-y-6 sm:space-y-8 animate-in zoom-in-95 shadow-3xl max-h-[90vh] overflow-y-auto custom-scrollbar">
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
+                <div className="space-y-3 sm:space-y-4">
                   <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Responding Agency</label>
                   <div className="grid grid-cols-3 gap-2">
-                    <button onClick={() => setNewCallDept(UnitType.POLICE)} className={`py-3 rounded-xl border text-[9px] font-black transition-all ${newCallDept === UnitType.POLICE ? 'bg-blue-600 border-blue-400 text-white shadow-lg' : 'bg-slate-950 border-slate-800 text-slate-700'}`}>POLICE</button>
-                    <button onClick={() => setNewCallDept(UnitType.FIRE)} className={`py-3 rounded-xl border text-[9px] font-black transition-all ${newCallDept === UnitType.FIRE ? 'bg-red-600 border-red-400 text-white shadow-lg' : 'bg-slate-950 border-slate-800 text-slate-700'}`}>FIRE</button>
-                    <button onClick={() => setNewCallDept(UnitType.DOT)} className={`py-3 rounded-xl border text-[9px] font-black transition-all ${newCallDept === UnitType.DOT ? 'bg-yellow-600 border-yellow-400 text-white shadow-lg' : 'bg-slate-950 border-slate-800 text-slate-700'}`}>DOT</button>
+                    <button onClick={() => setNewCallDept(UnitType.POLICE)} className={`py-4 rounded-xl border text-[10px] font-black transition-all active:scale-95 ${newCallDept === UnitType.POLICE ? 'bg-blue-600 border-blue-400 text-white shadow-lg' : 'bg-slate-950 border-slate-800 text-slate-700'}`}>POLICE</button>
+                    <button onClick={() => setNewCallDept(UnitType.FIRE)} className={`py-4 rounded-xl border text-[10px] font-black transition-all active:scale-95 ${newCallDept === UnitType.FIRE ? 'bg-red-600 border-red-400 text-white shadow-lg' : 'bg-slate-950 border-slate-800 text-slate-700'}`}>FIRE</button>
+                    <button onClick={() => setNewCallDept(UnitType.DOT)} className={`py-4 rounded-xl border text-[10px] font-black transition-all active:scale-95 ${newCallDept === UnitType.DOT ? 'bg-yellow-600 border-yellow-400 text-white shadow-lg' : 'bg-slate-950 border-slate-800 text-slate-700'}`}>DOT</button>
                   </div>
                 </div>
-                <div className="space-y-4">
+                <div className="space-y-3 sm:space-y-4">
                   <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Call Scenario</label>
-                  <select value={newCallType} onChange={(e) => setNewCallType(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-5 font-black text-white outline-none appearance-none cursor-pointer shadow-inner">
+                  <select value={newCallType} onChange={(e) => setNewCallType(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 sm:p-5 font-black text-white text-sm outline-none appearance-none cursor-pointer shadow-inner">
                     {DEPARTMENT_CALL_TYPES[newCallDept]?.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
              </div>
              
-             <div className="grid md:grid-cols-2 gap-6 md:gap-8">
-                <div className="space-y-4">
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
+                <div className="space-y-3 sm:space-y-4">
                   <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Location Coordinates</label>
-                  <input type="text" placeholder="STREET / POI / POSTAL" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} list="loc-suggestions" className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-5 font-black outline-none focus:ring-2 focus:ring-blue-500 text-white shadow-inner transition-all placeholder:text-slate-800" />
+                  <input type="text" placeholder="STREET / POI / POSTAL" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} list="loc-suggestions" className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 sm:p-5 font-black outline-none focus:ring-2 focus:ring-blue-500 text-white shadow-inner transition-all placeholder:text-slate-800 text-sm" />
                   <datalist id="loc-suggestions">{ERLC_LOCATIONS.map(l => <option key={l} value={l} />)}</datalist>
                 </div>
-                <div className="space-y-4">
+                <div className="space-y-3 sm:space-y-4">
                   <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Response Code</label>
                   <div className="grid grid-cols-2 gap-2">
                     {Object.values(Priority).map(p => (
-                      <button key={p} onClick={() => setNewPriority(p)} className={`py-3 md:py-4 rounded-xl border text-[10px] font-black uppercase transition-all tracking-tighter ${newPriority === p ? 'bg-slate-700 text-white shadow-lg border-slate-500' : 'bg-slate-950 text-slate-800 border-slate-800'}`}>{p}</button>
+                      <button key={p} onClick={() => setNewPriority(p)} className={`py-4 rounded-xl border text-[11px] font-black uppercase transition-all tracking-tighter active:scale-95 ${newPriority === p ? 'bg-slate-700 text-white shadow-lg border-slate-500' : 'bg-slate-950 text-slate-800 border-slate-800'}`}>{p}</button>
                     ))}
                   </div>
                 </div>
              </div>
 
-             <div className="flex gap-4 md:gap-6 pt-4">
-                <button onClick={() => setIsCreatingCall(false)} className="flex-1 font-black text-[11px] text-slate-500 uppercase tracking-widest hover:text-white transition-colors">Discard</button>
-                <button onClick={createIncident} className="flex-[3] bg-blue-600 hover:bg-blue-500 text-white py-4 md:py-6 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl active:scale-95 transition-all">Broadcast Call</button>
+             <div className="flex gap-4 sm:gap-6 pt-4">
+                <button onClick={() => setIsCreatingCall(false)} className="flex-1 font-black text-[11px] text-slate-500 uppercase tracking-widest hover:text-white transition-colors active:scale-95 py-4">Discard</button>
+                <button onClick={createIncident} className="flex-[3] bg-blue-600 hover:bg-blue-500 text-white py-5 sm:py-6 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl active:scale-95 transition-all text-sm">Broadcast Call</button>
              </div>
           </div>
         </div>
